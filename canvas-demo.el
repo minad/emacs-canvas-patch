@@ -13,11 +13,10 @@
 (defvar canvas-demo-time)
 (defvar canvas-demo-mode-line)
 
-(setq canvas-demo-canvas `(image :type canvas
+(setq canvas-demo-canvas '(image :type canvas
                                  :canvas-width 400
                                  :canvas-height 300
                                  :canvas-id canvas-demo
-                                 :canvas-buffer ,(current-buffer)
                                  :margin (20 . 20)
                                  :scale 2)
       canvas-demo-tick 0
@@ -45,4 +44,5 @@
      (when (> delta 2)
        (setq canvas-demo-mode-line (format " FPS: %.1f" (/ canvas-demo-frame delta))
              canvas-demo-time time
-             canvas-demo-frame 0)))))
+             canvas-demo-frame 0)
+       (force-mode-line-update t)))))

@@ -1,7 +1,11 @@
-From f76a63e00d04783b50f081bb15d383c8412e9f76 Mon Sep 17 00:00:00 2001
+From 97bc4358b9e1f11257c65968a1079074485c47ab Mon Sep 17 00:00:00 2001
 From: Daniel Mendler <mail@daniel-mendler.de>
 Date: Fri, 6 Feb 2026 15:19:42 +0100
 Subject: [PATCH] New image type canvas
+
+See bug#80281.
+
+Canvas changes:
 
 * etc/emacs_lldb.py: Add `PVEC_CANVAS' type.
 * src/alloc.c (cleanup_vector):
@@ -10,31 +14,26 @@ Subject: [PATCH] New image type canvas
 * src/data.c (cl-type-of): Handle `PVEC_CANVAS'.
 * src/dispextern.h (HAVE_CANVAS): New define.
 (struct image): Add `image.refresh' field to the struct.
-(struct glyph): Add `glyph.u.img.refresh' and `glyph.u.img.id' fields.
-(canvas_refresh, canvas_pixel): New prototypes.
-* src/image.c (canvas_refresh, canvas_pixel, canvas_refresh_image)
-(canvas_get, canvas_load, canvas_image_p): New functions.
+(canvas_prepare, canvas_refresh, canvas_pixel, redraw_canvas_glyphs):
+New prototypes.
+* src/image.c (canvas_refresh, canvas_pixel, canvas_prepare, canvas_get)
+(canvas_load, canvas_image_p): New functions.
 (canvas_map): Weak hash map associating canvas ids with canvas objects.
 (prepare_image_for_display): Call `canvas_refresh_image'.
-(filter_image_spec): Filter `:canvas-buffer'.
 (syms_of_image): Create `canvas_map' hash table and register canvas
 symbols and image type.
 (image_set_transform): Use CAIRO_FILTER_GOOD for improved performance
 when scaling images. See the message at
 https://lists.gnu.org/r/emacs-devel/2025-07/msg00475.html.
+* src/xdisp.c (redraw_canvas_glyphs): New function to redraw single
+glyphs.
 * src/lisp.h (PVEC_CANVAS, Lisp_Canvas, CANVASP, XCANVAS): New
 pseudovector type.
-* src/window.c (REDISPLAY_BUFFER_WINDOWS_NO_MODE_LINE)
-(REDISPLAY_BUFFER_WINDOWS_MODE_LINE): New window loop operations to
-avoid mode line update.
-(window_loop): Handle the operations.
-(force-window-update): Add optional argument NO-MODE-LINE.
 * src/emacs-module.c (module_canvas_pixel, module_canvas_refresh): New
 module function.
 (initialize_environment): Register new module functions.
 * src/module-env-31.h (canvas_pixel, canvas_refresh): New prototypes.
 * doc/lispref/display.texi (Canvas Images): Document canvas images.
-(force-mode-line-update): Document additional argument NO-MODE-LINE.
 * doc/lispref/elisp.texi: Reference node canvas images.
 * test/src/emacs-module-resources/mod-test.c (mod-test-canvas): New
 helper function.
@@ -42,30 +41,39 @@ helper function.
 (mod-test-canvas/invalid): New tests.
 * etc/NEWS: Announce the addition.
 
-See bug#80281.
+Additional changes:
+
+* src/window.c (REDISPLAY_BUFFER_WINDOWS_NO_MODE_LINE)
+(REDISPLAY_BUFFER_WINDOWS_MODE_LINE): New window loop operations to
+avoid mode line update.
+(window_loop): Handle the operations.
+(force-window-update): Add optional argument NO-MODE-LINE.
+(mark_window_display_accurate_1): Ensure that `redisplay_other_windows'
+is called if the window is marked inaccurate.
+* doc/lispref/display.texi (force-mode-line-update): Document additional
+argument NO-MODE-LINE.
 ---
- doc/lispref/display.texi                   |  67 +++++-
+ doc/lispref/display.texi                   |  65 +++++-
  doc/lispref/elisp.texi                     |   1 +
  etc/NEWS                                   |   7 +
  etc/emacs_lldb.py                          |   1 +
  src/alloc.c                                |   4 +
  src/data.c                                 |   2 +
- src/dispextern.h                           |  23 +-
- src/dispnew.c                              |   4 +-
+ src/dispextern.h                           |  14 ++
  src/emacs-module.c                         |  24 +++
- src/image.c                                | 235 ++++++++++++++++++++-
+ src/image.c                                | 233 ++++++++++++++++++++-
  src/lisp.h                                 |  27 +++
  src/module-env-31.h                        |  11 +
  src/pdumper.c                              |   1 +
  src/print.c                                |   9 +
  src/window.c                               |  41 ++--
- src/xdisp.c                                |  21 +-
+ src/xdisp.c                                |  56 ++++-
  test/src/emacs-module-resources/mod-test.c |  23 ++
  test/src/emacs-module-tests.el             |  24 +++
- 18 files changed, 496 insertions(+), 29 deletions(-)
+ 17 files changed, 526 insertions(+), 17 deletions(-)
 
 diff --git a/doc/lispref/display.texi b/doc/lispref/display.texi
-index 464c0badc36..6787daf6304 100644
+index 464c0badc36..3f5e8205f13 100644
 --- a/doc/lispref/display.texi
 +++ b/doc/lispref/display.texi
 @@ -105,13 +105,16 @@ Forcing Redisplay
@@ -94,7 +102,7 @@ index 464c0badc36..6787daf6304 100644
  * Image Cache::         Internal mechanisms of image display.
  @end menu
  
-@@ -7411,6 +7415,67 @@ Multi-Frame Images
+@@ -7411,6 +7415,65 @@ Multi-Frame Images
  if there is one.
  @end defun
  
@@ -113,16 +121,14 @@ index 464c0badc36..6787daf6304 100644
 +  '(image :type canvas
 +          :canvas-id my-identifier
 +          :canvas-width 800
-+          :canvas-height 600
-+          :canvas-buffer "some-buffer"))
++          :canvas-height 600))
 +@end lisp
 +
 +The image specification must specify a unique identifier symbol
 +@code{:canvas-id}.  The identifier must be different for two canvases
 +with different size.  The positive integer width and positive integer
 +height of the canvas @code{:canvas-width} and @code{:canvas-height} are
-+mandatory.  The @code{:canvas-buffer} optionally specifies a buffer or
-+the name of a buffer, and is used for redisplay optimization.
++mandatory.
 +
 +Other image properties like @code{:scale}, @code{:margin},
 +@code{:relief}, @code{:scale}, @code{:transform-smoothing} and
@@ -163,10 +169,10 @@ index 464c0badc36..6787daf6304 100644
  @node Image Cache
  @subsection Image Cache
 diff --git a/doc/lispref/elisp.texi b/doc/lispref/elisp.texi
-index aeda08f95f3..ff3cb09e067 100644
+index 020095884d3..350d7da831e 100644
 --- a/doc/lispref/elisp.texi
 +++ b/doc/lispref/elisp.texi
-@@ -1574,6 +1574,7 @@ Top
+@@ -1567,6 +1567,7 @@ Top
  * Showing Images::          Convenient ways to display an image once
                                it is defined.
  * Multi-Frame Images::      Some images contain more than one frame.
@@ -240,7 +246,7 @@ index 903aac07538..00334b19ce0 100644
            return Qsub_char_table;
          /* "Impossible" cases.  */
 diff --git a/src/dispextern.h b/src/dispextern.h
-index 30785b9ccdf..e220a851cde 100644
+index 30785b9ccdf..7dab7fb6a42 100644
 --- a/src/dispextern.h
 +++ b/src/dispextern.h
 @@ -24,6 +24,10 @@ #define DISPEXTERN_H_INCLUDED
@@ -254,25 +260,7 @@ index 30785b9ccdf..e220a851cde 100644
  #ifdef HAVE_X_WINDOWS
  
  #include <X11/Xlib.h>
-@@ -589,8 +593,15 @@ #define FACE_ID_BITS	20
-       unsigned id    : 31;
-     } cmp;
- 
--    /* Image ID for image glyphs (type == IMAGE_GLYPH).  */
--    int img_id;
-+    /* Sub-structures for image glyphs (type == IMAGE_GLYPH).  */
-+    struct
-+    {
-+      /* Refresh counter which increments if the image should be
-+         updated, e.g., taken from canvas->refresh. */
-+      int refresh : 8;
-+      /* ID of the image in the image cache.  */
-+      int id : 24;
-+    } img;
- 
- #ifdef HAVE_XWIDGETS
-     /* Xwidget ID.  */
-@@ -3318,6 +3329,9 @@ #define CENTERED_IMAGE_ASCENT -1
+@@ -3318,6 +3322,9 @@ #define CENTERED_IMAGE_ASCENT -1
    /* Image id of this image.  */
    ptrdiff_t id;
  
@@ -282,40 +270,27 @@ index 30785b9ccdf..e220a851cde 100644
    /* Hash collision chain.  */
    struct image *next, *prev;
  };
-@@ -3679,6 +3693,11 @@ #define TRY_WINDOW_IGNORE_FONTS_CHANGE	(1 << 1)
+@@ -3590,6 +3597,7 @@ #define DEFAULT_TOOL_BAR_IMAGE_HEIGHT 24
+ 
+ #ifdef HAVE_WINDOW_SYSTEM
+ 
++extern void redraw_canvas_glyphs (Lisp_Object);
+ extern void gui_get_glyph_overhangs (struct glyph *, struct frame *,
+                                      int *, int *);
+ extern struct font *font_for_underline_metrics (struct glyph_string *);
+@@ -3679,6 +3687,12 @@ #define TRY_WINDOW_IGNORE_FONTS_CHANGE	(1 << 1)
  
  /* Defined in image.c */
  
 +#ifdef HAVE_CANVAS
 +extern uint32_t* canvas_pixel (Lisp_Object);
 +extern void canvas_refresh (Lisp_Object);
++extern void canvas_prepare (struct frame *f, struct image *img);
 +#endif
 +
  #ifdef HAVE_WINDOW_SYSTEM
  
  extern void clear_image_cache (struct frame *, Lisp_Object);
-diff --git a/src/dispnew.c b/src/dispnew.c
-index f0e451f5baa..8cb7fd09dee 100644
---- a/src/dispnew.c
-+++ b/src/dispnew.c
-@@ -6476,7 +6476,7 @@ mode_line_string (struct window *w, enum window_part part,
- 	  if (glyph->type == IMAGE_GLYPH)
- 	    {
- 	      struct image *img;
--	      img = IMAGE_OPT_FROM_ID (WINDOW_XFRAME (w), glyph->u.img_id);
-+	      img = IMAGE_OPT_FROM_ID (WINDOW_XFRAME (w), glyph->u.img.id);
- 	      if (img != NULL)
- 		{
- 		  *object = img->spec;
-@@ -6567,7 +6567,7 @@ marginal_area_string (struct window *w, enum window_part part,
- 	  if (glyph->type == IMAGE_GLYPH)
- 	    {
- 	      struct image *img;
--	      img = IMAGE_OPT_FROM_ID (WINDOW_XFRAME (w), glyph->u.img_id);
-+	      img = IMAGE_OPT_FROM_ID (WINDOW_XFRAME (w), glyph->u.img.id);
- 	      if (img != NULL)
- 		*object = img->spec;
- 	      y0 -= row->ascent - glyph->ascent;
 diff --git a/src/emacs-module.c b/src/emacs-module.c
 index 2696a6c0376..450ed8886ff 100644
 --- a/src/emacs-module.c
@@ -359,54 +334,38 @@ index 2696a6c0376..450ed8886ff 100644
  }
  
 diff --git a/src/image.c b/src/image.c
-index ccbf5db028f..5efe1d3fb16 100644
+index ccbf5db028f..3e223b690a3 100644
 --- a/src/image.c
 +++ b/src/image.c
-@@ -1838,6 +1838,8 @@ check_image_size (struct frame *f, int width, int height)
- /* Prepare image IMG for display on frame F.  Must be called before
-    drawing an image.  */
- 
-+static void canvas_refresh_image (struct frame *f, struct image *img);
-+
- void
- prepare_image_for_display (struct frame *f, struct image *img)
- {
-@@ -1877,6 +1879,15 @@ prepare_image_for_display (struct frame *f, struct image *img)
+@@ -1877,6 +1877,15 @@ prepare_image_for_display (struct frame *f, struct image *img)
        unblock_input ();
      }
  #endif
 +
-+  /* Reload canvas pixel into pixmap if canvas is marked as dirty */
++  /* Copy canvas pixel into pixmap if refresh counter has been updated.  */
 +  Lisp_Object canvas = img->lisp_data;
 +  if (CANVASP (canvas) && XCANVAS (canvas)->refresh != img->refresh)
 +    {
 +      block_input ();
-+      canvas_refresh_image (f, img);
++      canvas_prepare (f, img);
 +      unblock_input ();
 +    }
  }
  
  
-@@ -2267,7 +2278,8 @@ filter_image_spec (Lisp_Object spec)
- 
- 	  /* Some animation-related data doesn't affect display, but
- 	     breaks the image cache.  Filter those out.  */
--	  if (!(EQ (key, QCanimate_buffer)
-+	  if (!(EQ (key, QCcanvas_buffer)
-+		|| EQ (key, QCanimate_buffer)
- 		|| EQ (key, QCanimate_tardiness)
- 		|| EQ (key, QCanimate_position)))
- 	    {
-@@ -3357,7 +3369,7 @@ image_set_transform (struct frame *f, struct image *img)
+@@ -3356,8 +3365,10 @@ image_set_transform (struct frame *f, struct image *img)
+ 			      matrix[1][1], matrix[2][0], matrix[2][1]};
    cairo_pattern_t *pattern = cairo_pattern_create_rgb (0, 0, 0);
    cairo_pattern_set_matrix (pattern, &cr_matrix);
++  /* With the good filter we potentially get HW acceleration.
++     Performance degrades with CAIRO_FILTER_BEST.  */
    cairo_pattern_set_filter (pattern, smoothing
 -                            ? CAIRO_FILTER_BEST : CAIRO_FILTER_NEAREST);
 +                            ? CAIRO_FILTER_GOOD : CAIRO_FILTER_NEAREST);
    /* Dummy solid color pattern just to record pattern matrix.  */
    img->cr_data = pattern;
  # elif defined (HAVE_XRENDER)
-@@ -5403,7 +5415,215 @@ xbm_load (struct frame *f, struct image *img)
+@@ -5403,7 +5414,217 @@ xbm_load (struct frame *f, struct image *img)
    return success_p;
  }
  
@@ -530,10 +489,10 @@ index ccbf5db028f..5efe1d3fb16 100644
 +  return 1;
 +}
 +
-+/* Refresh image IMG data from canvas.  */
++/* Prepare image IMG from canvas for display.  */
 +
-+static void
-+canvas_refresh_image (struct frame *f, struct image *img)
++void
++canvas_prepare (struct frame *f, struct image *img)
 +{
 +  struct Lisp_Canvas *canvas = XCANVAS (img->lisp_data);
 +  img->refresh = canvas->refresh;
@@ -610,19 +569,21 @@ index ccbf5db028f..5efe1d3fb16 100644
 +  if (NILP (canvas))
 +    error ("Not a canvas");
 +
-+  /* Increment canvas refresh counter. */
++  /* Increment canvas refresh counter.  */
 +  int *p = &XCANVAS (canvas)->refresh, n = *p + 1;
-+  *p = n > 255 ? 1 : n;
++  *p = n ? n : 1;
 +
-+  /* Force redrawing of affected windows. */
-+  Fforce_window_update (plist_get (XCDR (image), QCcanvas_buffer), Qt);
++  /* Redraw all glyphs.  */
++  block_input ();
++  redraw_canvas_glyphs (canvas);
++  unblock_input ();
 +}
 +
 +#endif
  
  /***********************************************************************
  			      XPM images
-@@ -12958,6 +13178,9 @@ initialize_image_type (struct image_type const *type)
+@@ -12958,6 +13179,9 @@ initialize_image_type (struct image_type const *type)
  #if defined HAVE_WEBP
   { SYMBOL_INDEX (Qwebp), webp_image_p, webp_load, image_clear_image,
     IMAGE_TYPE_INIT (init_webp_functions) },
@@ -632,12 +593,11 @@ index ccbf5db028f..5efe1d3fb16 100644
  #endif
   { SYMBOL_INDEX (Qxbm), xbm_image_p, xbm_load, image_clear_image },
   { SYMBOL_INDEX (Qpbm), pbm_image_p, pbm_load, image_clear_image },
-@@ -13160,6 +13383,14 @@ syms_of_image (void)
+@@ -13160,6 +13384,13 @@ syms_of_image (void)
  #endif /* NS_IMPL_GNUSTEP && !HAVE_WEBP */
  #endif
  
 +#if defined (HAVE_CANVAS)
-+  DEFSYM (QCcanvas_buffer, ":canvas-buffer");
 +  DEFSYM (Qcanvas, "canvas");
 +  add_image_type (Qcanvas);
 +  canvas_map = make_hash_table (&hashtest_eq, DEFAULT_HASH_SIZE, Weak_Key_Or_Value);
@@ -844,14 +804,15 @@ index c4f2e4e491f..f609ac6bf9b 100644
      }
  
 diff --git a/src/xdisp.c b/src/xdisp.c
-index 22e178fcdc9..8bce23c32db 100644
+index 22e178fcdc9..ff78772ea18 100644
 --- a/src/xdisp.c
 +++ b/src/xdisp.c
-@@ -18241,7 +18241,10 @@ mark_window_display_accurate_1 (struct window *w, bool accurate_p)
+@@ -18241,7 +18241,11 @@ mark_window_display_accurate_1 (struct window *w, bool accurate_p)
        w->preserve_vscroll_p = false;
      }
  
 -  w->redisplay = !accurate_p;
++  /* Ensure that `redisplay_other_windows' is called.  */
 +  if (accurate_p)
 +    w->redisplay = false;
 +  else
@@ -859,71 +820,63 @@ index 22e178fcdc9..8bce23c32db 100644
  }
  
  
-@@ -23318,7 +23321,7 @@ dump_glyph (struct glyph_row *row, struct glyph *glyph, int area)
- 		      ? '0'
- 		      : '-'))),
- 	       glyph->pixel_width,
--	       (unsigned int) glyph->u.img_id,
-+	       (unsigned int) glyph->u.img.id,
- 	       '.',
- 	       glyph->face_id,
- 	       glyph->left_box_line_p,
-@@ -30854,7 +30857,7 @@ fill_glyph_string (struct glyph_string *s, int face_id,
- fill_image_glyph_string (struct glyph_string *s)
- {
-   eassert (s->first_glyph->type == IMAGE_GLYPH);
--  s->img = IMAGE_FROM_ID (s->f, s->first_glyph->u.img_id);
-+  s->img = IMAGE_FROM_ID (s->f, s->first_glyph->u.img.id);
-   eassert (s->img);
-   s->slice = s->first_glyph->slice.img;
-   s->face = FACE_FROM_ID (s->f, s->first_glyph->face_id);
-@@ -32260,7 +32263,9 @@ produce_image_glyph (struct it *it)
-           glyph->padding_p = false;
- 	  glyph->glyph_not_available_p = false;
- 	  glyph->face_id = it->face_id;
--	  glyph->u.img_id = img->id;
-+	  glyph->u.img.id = img->id;
-+	  glyph->u.img.refresh = CANVASP (img->lisp_data)
-+	      ? XCANVAS (img->lisp_data)->refresh : 0;
- 	  glyph->slice.img = slice;
- 	  glyph->font_type = FONT_TYPE_UNKNOWN;
- 	  if (it->bidi_p)
-@@ -34322,7 +34327,7 @@ get_window_cursor_type (struct window *w, struct glyph *glyph, int *width,
- 		 annoying.  So use a hollow cursor for "large" images.
- 		 If image is not transparent (no mask), also use
- 		 hollow cursor.  */
--	      struct image *img = IMAGE_OPT_FROM_ID (f, glyph->u.img_id);
-+	      struct image *img = IMAGE_OPT_FROM_ID (f, glyph->u.img.id);
- 	      if (img != NULL && IMAGEP (img->spec))
- 		{
- 		  /* Interpret "large" as >SIZExSIZE and >NxN where
-@@ -36720,7 +36725,7 @@ note_mouse_highlight (struct frame *f, int x, int y)
-       /* Look for :pointer property on image.  */
-       if (glyph != NULL && glyph->type == IMAGE_GLYPH)
- 	{
--	  struct image *img = IMAGE_OPT_FROM_ID (f, glyph->u.img_id);
-+	  struct image *img = IMAGE_OPT_FROM_ID (f, glyph->u.img.id);
- 	  if (img != NULL && IMAGEP (img->spec))
- 	    {
- 	      Lisp_Object image_map, hotspot;
-@@ -39102,7 +39107,7 @@ adjust_glyph_width_for_mouse_face (struct glyph *g, struct glyph_row *row,
-       if (!row->reversed_p)
- 	{
- 	  struct image *img = IMAGE_FROM_ID (WINDOW_XFRAME (w),
--					     g->u.img_id);
-+					     g->u.img.id);
- 	  do_left_box_p = g->left_box_line_p &&
- 	    g->slice.img.x == 0;
- 	  do_right_box_p = g->right_box_line_p &&
-@@ -39111,7 +39116,7 @@ adjust_glyph_width_for_mouse_face (struct glyph *g, struct glyph_row *row,
-       else
- 	{
- 	  struct image *img = IMAGE_FROM_ID (WINDOW_XFRAME (w),
--					     g->u.img_id);
-+					     g->u.img.id);
- 	  do_left_box_p = g->left_box_line_p &&
- 	    g->slice.img.x + g->slice.img.width == img->width;
- 	  do_right_box_p = g->right_box_line_p &&
+@@ -32475,6 +32479,56 @@ append_stretch_glyph (struct it *it, Lisp_Object object,
+     IT_EXPAND_MATRIX_WIDTH (it, area);
+ }
+ 
++static void redraw_canvas_glyphs_window_1 (struct window *w, Lisp_Object canvas)
++{
++  if (!w->current_matrix)
++    return;
++
++  struct frame* f = WINDOW_XFRAME (w);
++
++  for (int y = 0; y < w->current_matrix->nrows; ++y)
++    {
++      struct glyph_row *row = w->current_matrix->rows + y;
++      if (row->enabled_p)
++	{
++	  int start = row->x;
++	  for (int x = 0; x < row->used[TEXT_AREA]; ++x)
++	    {
++	      struct glyph *glyph = row->glyphs[TEXT_AREA] + x;
++	      if (glyph->type == IMAGE_GLYPH)
++		{
++		  struct image* img = IMAGE_OPT_FROM_ID (f, glyph->u.img_id);
++		  if (img && EQ (img->lisp_data, canvas))
++		    {
++		      canvas_prepare (f, img);
++		      draw_glyphs (w, start, row, TEXT_AREA, x, x + 1, DRAW_NORMAL_TEXT, 0);
++		    }
++		}
++	      start += glyph->pixel_width;
++	    }
++	}
++    }
++}
++
++static void redraw_canvas_glyphs_window (struct window *w, Lisp_Object canvas)
++{
++  while (w)
++    {
++      if (WINDOWP (w->contents))
++	redraw_canvas_glyphs_window (XWINDOW (w->contents), canvas);
++      else
++	redraw_canvas_glyphs_window_1 (w, canvas);
++      w = NILP (w->next) ? NULL : XWINDOW (w->next);
++    }
++}
++
++void redraw_canvas_glyphs (Lisp_Object canvas)
++{
++  Lisp_Object tail, frame;
++  FOR_EACH_FRAME (tail, frame)
++    redraw_canvas_glyphs_window (XWINDOW (XFRAME (frame)->root_window), canvas);
++}
++
+ #endif	/* HAVE_WINDOW_SYSTEM */
+ 
+ /* Produce a stretch glyph for iterator IT.  IT->object is the value
 diff --git a/test/src/emacs-module-resources/mod-test.c b/test/src/emacs-module-resources/mod-test.c
 index 7e68d32883e..0c31d572ea0 100644
 --- a/test/src/emacs-module-resources/mod-test.c
@@ -966,10 +919,10 @@ index 7e68d32883e..0c31d572ea0 100644
  #undef DEFUN
  
 diff --git a/test/src/emacs-module-tests.el b/test/src/emacs-module-tests.el
-index 7a8bcd4779d..91c1391eca4 100644
+index 769153a41fe..edf9b44e62f 100644
 --- a/test/src/emacs-module-tests.el
 +++ b/test/src/emacs-module-tests.el
-@@ -578,4 +578,28 @@ mod-test-make-string/nonempty
+@@ -579,4 +579,28 @@ mod-test-make-string/nonempty
          (should (string-equal first second))
          (should-not (eq first second))))))
  
