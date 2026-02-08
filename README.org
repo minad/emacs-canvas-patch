@@ -1,0 +1,5 @@
+#+title: Emacs Canvas Patch
+
+1. Apply canvas.diff to the Emacs source
+2. Recompile Emacs
+2. emacs -Q canvas-demo.el
