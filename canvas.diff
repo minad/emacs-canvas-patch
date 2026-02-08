@@ -1,4 +1,4 @@
-From 97bc4358b9e1f11257c65968a1079074485c47ab Mon Sep 17 00:00:00 2001
+From 214ea4cd89e6b2137fd055bf35721119f116513e Mon Sep 17 00:00:00 2001
 From: Daniel Mendler <mail@daniel-mendler.de>
 Date: Fri, 6 Feb 2026 15:19:42 +0100
 Subject: [PATCH] New image type canvas
@@ -334,10 +334,10 @@ index 2696a6c0376..450ed8886ff 100644
  }
  
 diff --git a/src/image.c b/src/image.c
-index ccbf5db028f..3e223b690a3 100644
+index ccbf5db028f..6642317e6ea 100644
 --- a/src/image.c
 +++ b/src/image.c
-@@ -1877,6 +1877,15 @@ prepare_image_for_display (struct frame *f, struct image *img)
+@@ -1877,6 +1877,11 @@ prepare_image_for_display (struct frame *f, struct image *img)
        unblock_input ();
      }
  #endif
@@ -345,15 +345,11 @@ index ccbf5db028f..3e223b690a3 100644
 +  /* Copy canvas pixel into pixmap if refresh counter has been updated.  */
 +  Lisp_Object canvas = img->lisp_data;
 +  if (CANVASP (canvas) && XCANVAS (canvas)->refresh != img->refresh)
-+    {
-+      block_input ();
-+      canvas_prepare (f, img);
-+      unblock_input ();
-+    }
++    canvas_prepare (f, img);
  }
  
  
-@@ -3356,8 +3365,10 @@ image_set_transform (struct frame *f, struct image *img)
+@@ -3356,8 +3361,10 @@ image_set_transform (struct frame *f, struct image *img)
  			      matrix[1][1], matrix[2][0], matrix[2][1]};
    cairo_pattern_t *pattern = cairo_pattern_create_rgb (0, 0, 0);
    cairo_pattern_set_matrix (pattern, &cr_matrix);
@@ -365,7 +361,7 @@ index ccbf5db028f..3e223b690a3 100644
    /* Dummy solid color pattern just to record pattern matrix.  */
    img->cr_data = pattern;
  # elif defined (HAVE_XRENDER)
-@@ -5403,7 +5414,217 @@ xbm_load (struct frame *f, struct image *img)
+@@ -5403,7 +5410,221 @@ xbm_load (struct frame *f, struct image *img)
    return success_p;
  }
  
@@ -494,6 +490,8 @@ index ccbf5db028f..3e223b690a3 100644
 +void
 +canvas_prepare (struct frame *f, struct image *img)
 +{
++  block_input ();
++
 +  struct Lisp_Canvas *canvas = XCANVAS (img->lisp_data);
 +  img->refresh = canvas->refresh;
 +  uint32_t* src = canvas->pixel;
@@ -546,6 +544,8 @@ index ccbf5db028f..3e223b690a3 100644
 +#else
 +# error Canvas not supported by the platform
 +#endif
++
++  unblock_input ();
 +}
 +
 +/* Access canvas buffer. */
@@ -804,7 +804,7 @@ index c4f2e4e491f..f609ac6bf9b 100644
      }
  
 diff --git a/src/xdisp.c b/src/xdisp.c
-index 22e178fcdc9..ff78772ea18 100644
+index 22e178fcdc9..daef91385d7 100644
 --- a/src/xdisp.c
 +++ b/src/xdisp.c
 @@ -18241,7 +18241,11 @@ mark_window_display_accurate_1 (struct window *w, bool accurate_p)
@@ -835,8 +835,8 @@ index 22e178fcdc9..ff78772ea18 100644
 +    {
 +      struct glyph_row *row = w->current_matrix->rows + y;
 +      if (row->enabled_p)
-+	{
-+	  int start = row->x;
++	  {
++	  int start = window_box_left_offset (w, TEXT_AREA) + row->x;
 +	  for (int x = 0; x < row->used[TEXT_AREA]; ++x)
 +	    {
 +	      struct glyph *glyph = row->glyphs[TEXT_AREA] + x;
