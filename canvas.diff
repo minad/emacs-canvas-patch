@@ -1,4 +1,4 @@
-From 214ea4cd89e6b2137fd055bf35721119f116513e Mon Sep 17 00:00:00 2001
+From 557afd8804861a441ee7217535c4224f263bc6a2 Mon Sep 17 00:00:00 2001
 From: Daniel Mendler <mail@daniel-mendler.de>
 Date: Fri, 6 Feb 2026 15:19:42 +0100
 Subject: [PATCH] New image type canvas
@@ -181,7 +181,7 @@ index 020095884d3..350d7da831e 100644
  
  Buttons
 diff --git a/etc/NEWS b/etc/NEWS
-index ce344283368..e76c83bd069 100644
+index fb78b3f7b5e..fcde0be71a7 100644
 --- a/etc/NEWS
 +++ b/etc/NEWS
 @@ -82,6 +82,13 @@ other directory on your system.  You can also invoke the
@@ -804,7 +804,7 @@ index c4f2e4e491f..f609ac6bf9b 100644
      }
  
 diff --git a/src/xdisp.c b/src/xdisp.c
-index 22e178fcdc9..daef91385d7 100644
+index 22e178fcdc9..14a87323191 100644
 --- a/src/xdisp.c
 +++ b/src/xdisp.c
 @@ -18241,7 +18241,11 @@ mark_window_display_accurate_1 (struct window *w, bool accurate_p)
@@ -836,7 +836,7 @@ index 22e178fcdc9..daef91385d7 100644
 +      struct glyph_row *row = w->current_matrix->rows + y;
 +      if (row->enabled_p)
 +	  {
-+	  int start = window_box_left_offset (w, TEXT_AREA) + row->x;
++	  int start = row->x;
 +	  for (int x = 0; x < row->used[TEXT_AREA]; ++x)
 +	    {
 +	      struct glyph *glyph = row->glyphs[TEXT_AREA] + x;
