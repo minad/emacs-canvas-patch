@@ -3,3 +3,5 @@
 1. Apply canvas.diff to the Emacs source
 2. Recompile Emacs
 2. emacs -Q canvas-demo.el
+
+#+html: <img src="https://github.com/minad/emacs-canvas-patch/blob/main/screenshot.png?raw=true"/>
