@@ -1,4 +1,4 @@
-From 557afd8804861a441ee7217535c4224f263bc6a2 Mon Sep 17 00:00:00 2001
+From 46cdbfe0a3722713eb907439f8731f578733d8da Mon Sep 17 00:00:00 2001
 From: Daniel Mendler <mail@daniel-mendler.de>
 Date: Fri, 6 Feb 2026 15:19:42 +0100
 Subject: [PATCH] New image type canvas
@@ -181,7 +181,7 @@ index 020095884d3..350d7da831e 100644
  
  Buttons
 diff --git a/etc/NEWS b/etc/NEWS
-index fb78b3f7b5e..fcde0be71a7 100644
+index ea3191680a1..fe07024ddd6 100644
 --- a/etc/NEWS
 +++ b/etc/NEWS
 @@ -82,6 +82,13 @@ other directory on your system.  You can also invoke the
@@ -233,7 +233,7 @@ index c0c24c65737..94047a30543 100644
      case PVEC_NORMAL_VECTOR:
      case PVEC_FREE:
 diff --git a/src/data.c b/src/data.c
-index 903aac07538..00334b19ce0 100644
+index da8ca42e565..96c34eeec9e 100644
 --- a/src/data.c
 +++ b/src/data.c
 @@ -291,6 +291,8 @@ DEFUN ("cl-type-of", Fcl_type_of, Scl_type_of, 1, 1, 0,
@@ -608,7 +608,7 @@ index ccbf5db028f..6642317e6ea 100644
    DEFSYM (Qimagemagick, "imagemagick");
    add_image_type (Qimagemagick);
 diff --git a/src/lisp.h b/src/lisp.h
-index 68d1226b2ee..42420a8d681 100644
+index 6d2fd4b83f2..b2161798fad 100644
 --- a/src/lisp.h
 +++ b/src/lisp.h
 @@ -1010,6 +1010,7 @@ DEFINE_GDB_SYMBOL_END (PSEUDOVECTOR_FLAG)
@@ -679,10 +679,10 @@ index e9827b18382..6f7af1ec59c 100644
 +  void (*canvas_refresh) (emacs_env *env, emacs_value canvas)
 +    EMACS_ATTRIBUTE_NONNULL(1);
 diff --git a/src/pdumper.c b/src/pdumper.c
-index 151c45b3348..91c7bd680dd 100644
+index c21af24d9f1..d6f87d30b58 100644
 --- a/src/pdumper.c
 +++ b/src/pdumper.c
-@@ -3140,6 +3140,7 @@ dump_vectorlike (struct dump_context *ctx,
+@@ -3071,6 +3071,7 @@ dump_vectorlike (struct dump_context *ctx,
      case PVEC_FREE:
      case PVEC_TS_PARSER:
      case PVEC_TS_NODE:
