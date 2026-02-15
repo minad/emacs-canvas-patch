@@ -1,7 +1,7 @@
 #+begin_src canvas
-(((x + 3*y + 2*t) & 255) << 16) |
-(((x + 5*y + 2*t) & 255) << 8) |
-((5*x + y + 3*t) & 255)
+r = (cosf(500*x*y+5*t) + 1) / 2;
+g = (cosf(520*x*y+5*t) + 1) / 2;
+b = (cosf(10*x*y+5*t) + 1) / 2;
 #+end_src
 
 #+RESULTS:
