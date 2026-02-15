@@ -5,3 +5,9 @@
 2. emacs -Q canvas-demo.el
 
 #+html: <img src="https://github.com/minad/emacs-canvas-patch/blob/main/screenshot.png?raw=true"/>
+
+See also:
+
+- [[https://debbugs.gnu.org/cgi/bugreport.cgi?bug=80281][bug#80281]]
+- [[https://github.com/minad/emacs-shader-demo][emacs-shader-demo]]
+- [[https://github.com/minad/doom-on-emacs][doom-on-emacs]]
