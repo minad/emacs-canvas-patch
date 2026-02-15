@@ -1,8 +1,8 @@
 ;;; canvas-demo.el  -*- lexical-binding: t -*-
 ;;; Run with emacs -Q -l canvas-demo.el
 
-(shell-command (format "gcc -O2 -I%ssrc canvas-demo.c -o canvas-demo.so -fPIC -shared && echo Compiled sucessfully" source-directory))
-(module-load "./canvas-demo.so")
+(shell-command (format "gcc -O2 -I%ssrc canvas-demo.c -o /tmp/canvas-demo.so -fPIC -shared && echo Compiled sucessfully" source-directory))
+(module-load "/tmp/canvas-demo.so")
 (declare-function canvas-demo-render "ext:canvas-demo.c")
 
 (switch-to-buffer (get-buffer-create "*canvas-demo*"))
