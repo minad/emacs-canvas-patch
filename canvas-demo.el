@@ -14,9 +14,8 @@
 (defvar canvas-demo-mode-line)
 
 (setq canvas-demo-canvas '(image :type canvas
-                                 :canvas-width 400
-                                 :canvas-height 300
-                                 :canvas-id canvas-demo
+                                 :data-width 400
+                                 :data-height 300
                                  :margin (20 . 20)
                                  :scale 2)
       canvas-demo-tick 0
@@ -37,6 +36,7 @@
  nil (/ 1 100.0)
  (lambda ()
    (canvas-demo-render canvas-demo-canvas canvas-demo-tick)
+   (canvas-refresh canvas-demo-canvas)
    (setq canvas-demo-tick (% (1+ canvas-demo-tick) 200))
    (let* ((time (float-time))
           (delta (- time canvas-demo-time)))

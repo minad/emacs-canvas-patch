@@ -37,7 +37,6 @@ static emacs_value render(emacs_env* env, ptrdiff_t nargs,
             }
         }
         last_x = next_x, last_y = next_y, dir = (dir + 1) & 3;
-        env->canvas_refresh(env, canvas);
     }
     return Qnil;
 }
