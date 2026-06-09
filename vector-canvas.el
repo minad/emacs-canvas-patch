@@ -11,3 +11,10 @@
 			  :data ,rect-canvas-vec))
 (insert (propertize "#" 'display rect-canvas))
 (canvas-refresh rect-canvas t)
+
+(defun reload-rect-vec ()
+  (dotimes (i 100)
+  (aset rect-canvas-vec i #xFFFFFFFF))
+  (canvas-refresh rect-canvas t))
+
+(reload-rect-vec)
