@@ -1,4 +1,4 @@
-;;; Create a canvas from a vector, and refresh it from lisp
+;;; Create a canvas from a vector, and refresh it from Lisp -*- lexical-binding: t -*-
 
 (setq test-canvas `(image :type canvas
                           :data-width 200

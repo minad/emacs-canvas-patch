@@ -1,4 +1,4 @@
-;;; canvas-demo.el  -*- lexical-binding: t -*-
+;;; canvas-demo.el -*- lexical-binding: t -*-
 ;;; Run with emacs -Q -l canvas-demo.el
 
 (shell-command (format "gcc -O2 -I%ssrc canvas-demo.c -o /tmp/canvas-demo.so -fPIC -shared && echo Compiled sucessfully" source-directory))
