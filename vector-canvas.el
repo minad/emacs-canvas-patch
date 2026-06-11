@@ -1,4 +1,4 @@
-;;; Create a canvas from a vector
+;;; Create a canvas from a vector, and refresh it from lisp
 
 (setq test-canvas `(image :type canvas
                           :data-width 200
