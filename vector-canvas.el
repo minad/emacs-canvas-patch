@@ -1,20 +1,13 @@
-;;; This should create a 250x250 RED square in your (canvas supported) Emacs buffer
+;;; Create a canvas from a vector
 
-(defun make-rect (width height pixel)
-  (make-vector (* width height) pixel))
+(setq test-canvas `(image :type canvas
+                          :data-width 200
+                          :data-height 100
+                          :data ,(make-vector (* 200 100) #xFFFF0000)))
+(insert (propertize "#" 'display test-canvas))
 
-(setq rect-canvas-vec (make-rect 250 250 #xFFFF0000))
-(setq rect-canvas `(image :type canvas
-			  :canvas-id rect
-			  :data-width 250
-			  :data-height 250
-			  :data ,rect-canvas-vec))
-(insert (propertize "#" 'display rect-canvas))
-(canvas-refresh rect-canvas t)
-
-(defun reload-rect-vec ()
-  (dotimes (i 100)
-  (aset rect-canvas-vec i #xFFFFFFFF))
-  (canvas-refresh rect-canvas t))
-
-(reload-rect-vec)
+(run-at-time 2 nil (lambda ()
+                     (dotimes (i 100)
+                       (aset (plist-get (cdr test-canvas) :data) i #xFFFFFFFF)
+                       (canvas-refresh test-canvas t)
+                       (redisplay))))
