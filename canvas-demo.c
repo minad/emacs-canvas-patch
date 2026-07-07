@@ -13,7 +13,7 @@ static emacs_value render(emacs_env* env, ptrdiff_t nargs,
                           emacs_value args[], void* data) {
     emacs_value canvas = args[0];
     int tick = env->extract_integer(env, args[1]);
-    uint32_t* pixel = env->canvas_pixel(env, canvas);
+    uint32_t* pixel = env->canvas_data(env, canvas);
     if (pixel) {
         if (!tick) {
             memset(pixel, 255, 4 * width * height);

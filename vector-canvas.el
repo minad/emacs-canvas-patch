@@ -6,8 +6,8 @@
                           :data ,(make-vector (* 200 100) #xFFFF0000)))
 (insert (propertize "#" 'display test-canvas))
 
-(run-at-time 2 nil (lambda ()
-                     (dotimes (i 100)
-                       (aset (plist-get (cdr test-canvas) :data) i #xFFFFFFFF)
-                       (canvas-refresh test-canvas t)
-                       (redisplay))))
+(run-at-time 1.0 nil (lambda ()
+                       (dotimes (i 100)
+                         (aset (plist-get (cdr test-canvas) :data) (+ i (* 200 i)) #xFFFFFFFF)
+                         (canvas-refresh test-canvas t)
+                         (redisplay))))
