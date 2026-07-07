@@ -1,7 +1,8 @@
 #+title: Emacs Canvas Patch
 
-1. Apply canvas.diff to the Emacs source
-2. Recompile Emacs
+1. Apply canvas-32.patch (or canvas-31.patch) to the Emacs source depending on
+   your Emacs version.
+2. Recompile Emacs.
 2. emacs -Q canvas-demo.el
 
 #+html: <img src="https://github.com/minad/emacs-canvas-patch/blob/main/screenshot.png?raw=true"/>

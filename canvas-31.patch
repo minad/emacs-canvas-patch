@@ -1,0 +1,1204 @@
+From fa467d5095ccbf7c08d4e247ce8f34bb7f82de1f Mon Sep 17 00:00:00 2001
+From: Divya Ranjan <divya@subvertising.org>
+Date: Tue, 7 Jul 2026 17:02:01 +0000
+Subject: [PATCH] New image type canvas
+
+Co-Authored-By: Daniel Mendler <mail@daniel-mendler.de>
+
+See bug#80281
+---
+ doc/lispref/display.texi                   |  64 +++
+ doc/lispref/elisp.texi                     |   1 +
+ doc/lispref/internals.texi                 |  45 ++
+ etc/NEWS                                   |   8 +
+ src/dispextern.h                           |   7 +
+ src/emacs-module.c                         |  10 +
+ src/image.c                                | 481 ++++++++++++++++++++-
+ src/module-env-31.h                        |   9 +
+ src/nsimage.m                              |   7 +
+ src/nsterm.h                               |   1 +
+ src/xdisp.c                                |  68 +++
+ test/data/image/canvas-argb                | Bin 0 -> 50176 bytes
+ test/src/emacs-module-resources/mod-test.c | 115 +++++
+ test/src/emacs-module-tests.el             | 100 +++++
+ 14 files changed, 912 insertions(+), 4 deletions(-)
+ create mode 100644 test/data/image/canvas-argb
+
+diff --git a/doc/lispref/display.texi b/doc/lispref/display.texi
+index e1b46d51489..df9114d9feb 100644
+--- a/doc/lispref/display.texi
++++ b/doc/lispref/display.texi
+@@ -6021,6 +6021,7 @@ Images
+ * Defining Images::     Convenient ways to define an image for later use.
+ * Showing Images::      Convenient ways to display an image once it is defined.
+ * Multi-Frame Images::  Some images contain more than one frame.
++* Canvas Images::       Easily modifiable image format with an ARGB32 pixel buffer.
+ * Image Cache::         Internal mechanisms of image display.
+ @end menu
+ 
+@@ -7472,6 +7473,69 @@ Multi-Frame Images
+ if there is one.
+ @end defun
+ 
++@node Canvas Images
++@subsection Canvas Images
++@cindex canvas image
++
++Canvas images have an associated writeable ARGB32 pixel buffer.  They
++can be used by dynamic modules to efficiently display and update images,
++for example by document viewers, visualization tools, dynamically
++computed animations or games.
++
++An image specifier with @code{:type canvas} creates a canvas, for instance
++as follows:
++
++@lisp
++(defvar my-canvas
++  '(image :type canvas
++          :data-width 800
++          :data-height 600))
++@end lisp
++
++The image specification uniquely identifies a canvas image object.  The
++properties @code{:data-width} and @code{:data-height} are mandatory, and
++both must be positive integers.
++
++Like other images, canvases can also be created via @code{create-image}
++by either providing ARGB32 data as a fixnum vector or as an unibyte string
++in @code{:data}.  Path to a file containing the ARGB32 data in @code{:file}
++can also be provided.
++
++So, the above canvas can also be created as follows:
++
++@lisp
++(setq my-canvas (create-image "/path/to/file"
++                              'canvas nil
++                              :data-width 800
++                              :data-height 600))
++@end lisp
++
++Other image properties like @code{:scale}, @code{:margin}, @code{:relief},
++@code{:transform-smoothing} and @code{:map} are supported.
++@xref{Image Descriptors} for further details on these properties.
++
++In order to display the canvas, specify it as display property of a
++string or overlay:
++
++@lisp
++(insert (propertize "#" 'display my-canvas))
++(overlay-put some-overlay 'display my-canvas)
++@end lisp
++
++Once a canvas image object has been created and displayed, it can be
++``refreshed'' via @code{canvas-refresh}.  Additionally, if the
++@code{:data} vector was mutated or the @code{:file} content has changed
++then an optional non-@code{nil} argument passed to @code{canvas-refresh}
++will ensure that the image data is reloaded.
++
++The following code will refresh the canvas by reloading the data or file:
++
++@lisp
++(canvas-refresh my-canvas t)
++@end lisp
++
++Canvas images can be manipulated and refreshed via dynamic modules.
++@xref{Module Canvas API} for further details.
+ 
+ @node Image Cache
+ @subsection Image Cache
+diff --git a/doc/lispref/elisp.texi b/doc/lispref/elisp.texi
+index b7809ff66da..33873c93f56 100644
+--- a/doc/lispref/elisp.texi
++++ b/doc/lispref/elisp.texi
+@@ -1576,6 +1576,7 @@ Top
+ * Showing Images::          Convenient ways to display an image once
+                               it is defined.
+ * Multi-Frame Images::      Some images contain more than one frame.
++* Canvas Images::           Easily modifiable image format with an ARGB32 pixel buffer.
+ * Image Cache::             Internal mechanisms of image display.
+ 
+ Buttons
+diff --git a/doc/lispref/internals.texi b/doc/lispref/internals.texi
+index 0cb3e0ccb1d..e9f6c2e5452 100644
+--- a/doc/lispref/internals.texi
++++ b/doc/lispref/internals.texi
+@@ -1117,6 +1117,7 @@ Writing Dynamic Modules
+ * Module Functions::
+ * Module Values::
+ * Module Misc::
++* Module Canvas API::
+ * Module Nonlocal::
+ @end menu
+ 
+@@ -2020,6 +2021,50 @@ Module Misc
+ I/O,,,libc}.
+ @end deftypefun
+ 
++@node Module Canvas API
++@subsection Using Canvas API With Modules
++
++Emacs supports creating image objects called ``canvas'' which have an
++ARGB32 pixel buffer associated with them.  These image objects can be
++accessed and updated natively via dynamic modules.  @xref{Canvas Images}
++for what they are.
++
++The following functions allow you to operate on canvas image objects with dynamic modules:
++
++@anchor{canvas_data}
++@deftypefn Function uint32_t *canvas_data (emacs_env *@var{env}, emacs_value @var{canvas})
++The function gives access to the pixel buffer.  The pixel buffer
++(of ARGB32 format) is in row-major order with a size @var{width} * @var{height}.
++The pointer will be valid as long as the object @var{canvas} is alive.
++@end deftypefn
++
++Note that the pixel buffer is only valid as the canvas object is alive and it's
++dimensions have not been changed. If it has changed, Emacs will update the pixel
++buffer and thus automatically resizing the canvas.
++
++Once we update the canvas pixel buffer via dynamic modules, we also have
++to call @code{canvas-refresh} for Emacs to redisplay the canvas.  This
++can be done from the module via an Elisp funcall.
++
++@example
++/* Access the pixel buffer */
++uint32_t *pixel = env->canvas_data (env, canvas);
++/* Write to the pixel buffer */
++...
++/* Redraw the canvas */
++env->funcall(env, env->intern(env, "canvas-refresh"), 1, &canvas);
++@end example
++
++Note that @code{canvas-refresh} has an optional boolean argument to
++reload the @code{:data} from the canvas image specification.  When
++called from dynamic modules, the argument should usually be @code{nil},
++thus not provided.
++
++Thus, one can simply define a module function that takes as an argument
++a canvas image object, following the specification as laid down in
++@xref{Canvas Images} and then use the above code to manipulate the pixel
++buffer of the canvas and redraw it.
++
+ @node Module Nonlocal
+ @subsection Nonlocal Exits in Modules
+ @cindex nonlocal exits, in modules
+diff --git a/etc/NEWS b/etc/NEWS
+index 4609e9b6910..fb85ee46712 100644
+--- a/etc/NEWS
++++ b/etc/NEWS
+@@ -83,6 +83,14 @@ Info node "(emacs) User Lisp Directory" for more details.
+ 
+ * Changes in Emacs 31.1
+ 
+++++
++** Support for canvas image objects.
++An image specifier with ':type canvas' creates a canvas image.  The
++canvas has an associated writable pixel buffer in ARGB32 format.  The
++dynamic module function 'canvas_data' gives access to the pixel buffer.
++After changing the ':data' vector or writing to the pixel buffer, call
++'canvas-refresh' to redraw all canvas images.
++
+ +++
+ ** 'line-spacing' now supports specifying spacing above the line.
+ Previously, only spacing below the line could be specified.  The user
+diff --git a/src/dispextern.h b/src/dispextern.h
+index b75bdff7bc6..8d3f1dc40d0 100644
+--- a/src/dispextern.h
++++ b/src/dispextern.h
+@@ -3341,6 +3341,10 @@ #define CENTERED_IMAGE_ASCENT -1
+   /* Image id of this image.  */
+   ptrdiff_t id;
+ 
++  /* Refresh counter reflecting the current version of the image.
++     Always larger than zero for images which may need refreshing.  */
++  uint32_t refresh;
++
+   /* Hash collision chain.  */
+   struct image *next, *prev;
+ };
+@@ -3615,6 +3619,7 @@ #define DEFAULT_TOOL_BAR_IMAGE_HEIGHT 24
+ 
+ #ifdef HAVE_WINDOW_SYSTEM
+ 
++extern void redraw_image_glyphs (Lisp_Object);
+ extern void gui_get_glyph_overhangs (struct glyph *, struct frame *,
+                                      int *, int *);
+ extern struct font *font_for_underline_metrics (struct glyph_string *);
+@@ -3704,6 +3709,8 @@ #define TRY_WINDOW_IGNORE_FONTS_CHANGE	(1 << 1)
+ 
+ /* Defined in image.c */
+ 
++extern uint32_t* canvas_data (Lisp_Object);
++
+ #ifdef HAVE_WINDOW_SYSTEM
+ 
+ extern void clear_image_cache (struct frame *, Lisp_Object);
+diff --git a/src/emacs-module.c b/src/emacs-module.c
+index 142ca675734..f0e4eab5105 100644
+--- a/src/emacs-module.c
++++ b/src/emacs-module.c
+@@ -962,6 +962,15 @@ module_vec_size (emacs_env *env, emacs_value vector)
+   return ASIZE (lisp);
+ }
+ 
++static uint32_t*
++module_canvas_data (emacs_env *env, emacs_value canvas)
++{
++  MODULE_FUNCTION_BEGIN (NULL);
++  uint32_t* pixel = canvas_data (value_to_lisp (canvas));
++  MODULE_INTERNAL_CLEANUP ();
++  return pixel;
++}
++
+ /* This function should return true if and only if maybe_quit would
+    quit.  */
+ static bool
+@@ -1613,6 +1622,7 @@ initialize_environment (emacs_env *env, struct emacs_env_private *priv)
+   env->open_channel = module_open_channel;
+   env->make_interactive = module_make_interactive;
+   env->make_unibyte_string = module_make_unibyte_string;
++  env->canvas_data = module_canvas_data;
+   return env;
+ }
+ 
+diff --git a/src/image.c b/src/image.c
+index e76911c3cd3..3dacafefa1a 100644
+--- a/src/image.c
++++ b/src/image.c
+@@ -110,6 +110,23 @@ #define PIX_MASK_DRAW	255
+ # define DONT_CREATE_TRANSFORMED_IMAGEMAGICK_IMAGE
+ #endif
+ 
++struct canvas
++{
++  /* Linked list of canvases */
++  struct canvas *next;
++  /* Is the canvas used? */
++  bool used;
++  /* Incremented if the canvas should be redrawn. Always larger than 0. */
++  uint32_t refresh;
++  /* Dimension of the canvas */
++  int width, height;
++  /* Pinned pixel memory buffer in ARGB32 format */
++  uint32_t *data;
++};
++
++static void canvas_prepare_for_display (struct frame *f, struct image *img);
++static void canvas_free_unused (void);
++
+ #ifdef HAVE_NTGUI
+ 
+ /* We need (or want) w32.h only when we're _not_ compiling for Cygwin.  */
+@@ -221,6 +238,7 @@ #define n_planes n_image_planes
+ 
+ #ifdef HAVE_NTGUI
+ static HBITMAP w32_create_pixmap_from_bitmap_data (int, int, char *);
++static void XPutPixel (XImage *, int, int, COLORREF);
+ 
+ #endif
+ 
+@@ -1877,6 +1895,13 @@ prepare_image_for_display (struct frame *f, struct image *img)
+       unblock_input ();
+     }
+ #endif
++
++  /* Copy canvas pixel into pixmap if refresh counter has been updated.
++     For canvases the refresh counter is always >= 1. */
++  if (img->refresh
++      && EQ (image_spec_value (img->spec, QCtype, NULL), Qcanvas)
++      && img->refresh != ((struct canvas *) XFIXNUMPTR (img->lisp_data))->refresh)
++    canvas_prepare_for_display (f, img);
+ }
+ 
+ 
+@@ -2260,6 +2285,8 @@ filter_image_spec (Lisp_Object spec)
+ {
+   Lisp_Object out = Qnil;
+ 
++  bool is_canvas = EQ (image_spec_value (spec, QCtype, NULL), Qcanvas);
++
+   /* Skip past the `image' element.  */
+   if (CONSP (spec))
+     spec = XCDR (spec);
+@@ -2274,8 +2301,12 @@ filter_image_spec (Lisp_Object spec)
+ 	  spec = XCDR (spec);
+ 
+ 	  /* Some animation-related data doesn't affect display, but
+-	     breaks the image cache.  Filter those out.  */
+-	  if (!(EQ (key, QCanimate_buffer)
++	     breaks the image cache.  Furthermore for canvases do not
++	     check the data for equality, such that data can be changed
++	     via mutation to refresh the canvas. Filter these keys out.
++	     */
++	  if (!((is_canvas && EQ (key, QCdata))
++		|| EQ (key, QCanimate_buffer)
+ 		|| EQ (key, QCanimate_tardiness)
+ 		|| EQ (key, QCanimate_position)))
+ 	    {
+@@ -2468,6 +2499,8 @@ DEFUN ("clear-image-cache", Fclear_image_cache, Sclear_image_cache,
+   /* Also clear the animation caches.  */
+   image_prune_animation_caches (true);
+ 
++  canvas_free_unused ();
++
+   return Qnil;
+ }
+ 
+@@ -3364,8 +3397,16 @@ image_set_transform (struct frame *f, struct image *img)
+ 			      matrix[1][1], matrix[2][0], matrix[2][1]};
+   cairo_pattern_t *pattern = cairo_pattern_create_rgb (0, 0, 0);
+   cairo_pattern_set_matrix (pattern, &cr_matrix);
+-  cairo_pattern_set_filter (pattern, smoothing
+-                            ? CAIRO_FILTER_BEST : CAIRO_FILTER_NEAREST);
++
++  /* Performance degrades with CAIRO_FILTER_BEST when using canvas, and possibly
++     we get HW acceleration from CAIRO_FILTER_GOOD */
++  int cairo_filter;
++  if (EQ (image_spec_value (img->spec, QCtype, NULL), Qcanvas))
++    cairo_filter = smoothing ? CAIRO_FILTER_GOOD : CAIRO_FILTER_NEAREST;
++  else
++    cairo_filter = smoothing ? CAIRO_FILTER_BEST : CAIRO_FILTER_NEAREST;
++  cairo_pattern_set_filter (pattern, cairo_filter);
++
+   /* Dummy solid color pattern just to record pattern matrix.  */
+   img->cr_data = pattern;
+ # elif defined (HAVE_XRENDER)
+@@ -5410,7 +5451,431 @@ xbm_load (struct frame *f, struct image *img)
+ 
+   return success_p;
+ }
++
++/***********************************************************************
++			      Canvas
++ ***********************************************************************/
+ 
++/* Indices of image specification fields in canvas_format, below.  */
++
++enum canvas_keyword_index
++{
++  CANVAS_TYPE,
++  CANVAS_FILE,
++  CANVAS_DATA,
++  CANVAS_WIDTH,
++  CANVAS_HEIGHT,
++  CANVAS_ASCENT,
++  CANVAS_MARGIN,
++  CANVAS_RELIEF,
++  CANVAS_LAST
++};
++
++/* Vector of image_keyword structures describing the format
++   of valid user-defined image specifications.  */
++
++static const struct image_keyword canvas_format[CANVAS_LAST] =
++{
++  {":type",		IMAGE_SYMBOL_VALUE,			1},
++  {":file",		IMAGE_STRING_VALUE,			0},
++  {":data",		IMAGE_DONT_CHECK_VALUE_TYPE,		0},
++  {":data-width",	IMAGE_POSITIVE_INTEGER_VALUE,		1},
++  {":data-height",	IMAGE_POSITIVE_INTEGER_VALUE,		1},
++  {":ascent",		IMAGE_ASCENT_VALUE,			0},
++  {":margin",		IMAGE_NON_NEGATIVE_INTEGER_VALUE_OR_PAIR, 0},
++  {":relief",		IMAGE_INTEGER_VALUE,			0},
++};
++
++/* Weak hash map associating the image spec with the canvas object.  */
++
++static Lisp_Object canvas_map;
++
++/* Linked list of all canvases.  */
++
++static struct canvas* canvas_list = 0;
++
++/* Return true if OBJECT is a valid canvas image specification.  */
++
++static bool
++canvas_image_p (Lisp_Object object)
++{
++  struct image_keyword fmt[CANVAS_LAST];
++  memcpy (fmt, canvas_format, sizeof fmt);
++
++  if (parse_image_spec (object, fmt, CANVAS_LAST, Qcanvas)
++      && fmt[CANVAS_FILE].count + fmt[CANVAS_DATA].count <= 1)
++    {
++      ptrdiff_t w = XFIXNAT (fmt[CANVAS_WIDTH].value);
++      ptrdiff_t h = XFIXNAT (fmt[CANVAS_HEIGHT].value);
++
++      /* Check that w*h*4 does not overflow */
++      if (w <= min (PTRDIFF_MAX, SIZE_MAX) / 4 / h)
++        return true;
++    }
++
++  return false;
++}
++
++/* Clear canvas list. All canvases which are not referenced anymore in
++   the weak hash table canvas_map are freed.  */
++
++static void
++canvas_free_unused (void)
++{
++  /* Mark all referenced canvases as used.  */
++  DOHASH (XHASH_TABLE (canvas_map), k, v)
++    ((struct canvas *)XFIXNUMPTR (v))->used = 1;
++
++  /* Free unreferenced canvases and remove them from the list.  */
++  struct canvas **p = &canvas_list;
++  while (*p)
++    {
++      struct canvas *c = *p;
++      if (c->used)
++        {
++	  p = &c->next;
++	  c->used = 0;
++	}
++      else
++	{
++	  *p = c->next;
++	  xfree (c->data);
++	  xfree (c);
++        }
++    }
++}
++
++/* Copy pixel data into canvas C from a parsed image keyword array FMT.
++
++   :data must be an unibyte string of exactly 4*WIDTH*HEIGHT bytes in
++   ARGB32 format, or a vector of size WIDTH*HEIGHT in row-major order,
++   where each element is a 32 bit integer. :file names a binary file in
++   ARGB32 format of size 4*WIDTH*HEIGHT bytes. */
++
++static void
++canvas_apply_data (struct canvas *c, struct image_keyword *fmt)
++{
++  ptrdiff_t expected_size = (ptrdiff_t) c->width * c->height;
++  ptrdiff_t expected_bytes = (ptrdiff_t) 4 * expected_size;
++
++  Lisp_Object data = fmt[CANVAS_DATA].value;
++  Lisp_Object file = fmt[CANVAS_FILE].value;
++
++  if (STRINGP (data)) /* Unibyte string data in ARGB32 format.  */
++    {
++      if (STRING_MULTIBYTE (data))
++	{
++          image_error ("Canvas :data string must be unibyte");
++	  return;
++	}
++
++      if (SBYTES (data) != expected_bytes)
++	{
++          image_error ("Canvas :data size mismatch: expected %d bytes",
++		       make_fixnum (expected_bytes));
++	  return;
++	}
++
++      memcpy (c->data, SDATA (data), expected_bytes);
++    }
++  else if (VECTORP (data)) /* Vector of ARGB32 integers.  */
++    {
++      if (ASIZE (data) != expected_size)
++	{
++	  image_error ("Canvas: :data size mismatch: expected vector size %d",
++		       make_fixnum (expected_size));
++	  return;
++	}
++
++      for (int i = 0; i < ASIZE (data); i++)
++	{
++          Lisp_Object pixel = AREF (data, i);
++	  if (!FIXNUMP (pixel))
++	    {
++	      image_error ("Canvas: expected fixnum in the vector");
++	      return;
++	    }
++	  c->data[i] = XFIXNUM (pixel);
++	}
++    }
++
++  else if (STRINGP (file)) /* Binary file with ARGB32 data.  */
++    {
++      Lisp_Object found = image_find_image_file (file);
++      if (!STRINGP (found))
++	{
++	  image_error ("Cannot find image :file to load for canvas %s", file);
++	  return;
++	}
++
++      Lisp_Object encoded = ENCODE_FILE (found);
++      int fd = emacs_open (SSDATA (encoded), O_RDONLY | O_BINARY, 0);
++      if (fd < 0)
++	{
++	  image_error ("Cannot open image :file for canvas %s", file);
++	  return;
++	}
++
++      ptrdiff_t nbytes;
++      char *buf = slurp_file (fd, &nbytes);
++      emacs_close (fd);
++      if (!buf)
++	{
++	  image_error ("Cannot read image :file for canvas %s", file);
++	  return;
++	}
++
++      if (nbytes == expected_bytes)
++	memcpy (c->data, buf, expected_bytes);
++      else
++	image_error ("Canvas :file size mismatch for %s", file);
++
++      xfree (buf);
++    }
++}
++
++/* Get canvas object for IMAGE specification. Return NULL on error.  */
++
++static struct canvas*
++canvas_get (Lisp_Object image, struct image_keyword *fmt)
++{
++  memcpy (fmt, canvas_format, sizeof canvas_format);
++  if (!parse_image_spec (image, fmt, CANVAS_LAST, Qcanvas))
++    {
++      image_error ("Not a canvas image specification");
++      return NULL;
++    }
++
++  Lisp_Object canvas_ptr = Fgethash (image, canvas_map, Qnil);
++  struct canvas* c = NILP (canvas_ptr) ? 0 : XFIXNUMPTR (canvas_ptr);
++  int width = XFIXNAT (fmt[CANVAS_WIDTH].value),
++      height = XFIXNAT (fmt[CANVAS_HEIGHT].value);
++
++  if (!c)
++    {
++      /* Free old canvases now, when allocating a new one, to keep
++         memory usage low. */
++      canvas_free_unused ();
++
++      c = xzalloc (sizeof (struct canvas));
++      c->refresh = 2;
++      c->width = width;
++      c->height = height;
++      c->data = xzalloc (4 * width * height);
++
++      /* Register the canvas in the list and the map. */
++      c->next = canvas_list;
++      canvas_list = c;
++      Fputhash (image, make_pointer_integer (c), canvas_map);
++
++      /* Initialize pixel buffer from :data or :file if supplied. */
++      canvas_apply_data (c, fmt);
++    }
++  else if (c->width != width || c->height != height)
++    {
++      /* Resize canvas. */
++      c->width = width;
++      c->height = height;
++      c->data = xrealloc (c->data, 4 * width * height);
++
++      /* Initialize pixel buffer from :data or :file if supplied. */
++      canvas_apply_data (c, fmt);
++    }
++
++  return c;
++}
++
++/* Create canvas IMG in frame F.  Value is true if successful.  */
++
++static bool
++canvas_load (struct frame *f, struct image *img)
++{
++  struct image_keyword fmt[CANVAS_LAST];
++  struct canvas* c = canvas_get (img->spec, fmt);
++
++  if (!c)
++    return false;
++
++  img->lisp_data = make_pointer_integer (c);
++  img->refresh = 1;
++  img->width = c->width;
++  img->height = c->height;
++  img->background_valid = 1;
++  img->background_transparent_valid = 1;
++
++  Emacs_Pix_Container ximg;
++  if (!image_create_x_image_and_pixmap (f, img, c->width, c->height, 0, &ximg, 0))
++    return false;
++
++  image_put_x_image (f, img, ximg, 0);
++
++  return true;
++}
++
++/* Prepare image IMG from canvas for display.  */
++
++static void
++canvas_prepare_for_display (struct frame *f, struct image *img)
++{
++  block_input ();
++
++  struct canvas *c = XFIXNUMPTR (img->lisp_data);
++  img->refresh = c->refresh;
++  uint32_t* src = c->data;
++  int width = c->width, height = c->height;
++
++#ifdef USE_CAIRO
++  /* Cairo: Optimized canvas reloading. Reuse the existing Cairo surface.  */
++  cairo_surface_t* surface;
++  if (img->cr_data
++      && cairo_pattern_get_type (img->cr_data) == CAIRO_PATTERN_TYPE_SURFACE
++      && !cairo_pattern_get_surface (img->cr_data, &surface))
++    {
++      cairo_surface_flush (surface);
++      int stride = cairo_image_surface_get_stride (surface);
++      unsigned char *dst = cairo_image_surface_get_data (surface);
++      /* Alpha channel is preserved here. Potentially preserve it when
++	 drawing the image in x_draw_image_glyph_string?  */
++      if (stride == 4 * width) /* Fast path */
++	{
++	  memcpy (dst, src, stride * height);
++	}
++      else
++	{
++	  for (int y = 0; y < height; ++y)
++	    memcpy (dst + (y * stride), src + (y * width), 4 * width);
++	}
++      cairo_surface_mark_dirty (surface);
++    }
++#elif defined HAVE_X_WINDOWS
++  /* X11: Optimized canvas reloading. Reuse the existing pixmap.  */
++  int depth = FRAME_DISPLAY_INFO (f)->n_planes;
++  XImage *ximg = XCreateImage (FRAME_X_DISPLAY (f), FRAME_X_VISUAL (f),
++			       depth, ZPixmap, 0, NULL, width, height,
++			       depth > 16 ? 32 : depth > 8 ? 16 : 8, 0);
++  if (ximg)
++    {
++      ximg->data = xmalloc (ximg->bytes_per_line * height);
++      for (int y = 0; y < height; ++y)
++	{
++	  for (int x = 0; x < width; ++x)
++	    {
++	      uint32_t c = src[y * width + x],
++		       r = (c >> 16) & 255,
++		       g = (c >>  8) & 255,
++		       b = c         & 255;
++	      PUT_PIXEL (ximg, x, y, lookup_rgb_color (f, r << 8, g << 8, b << 8));
++	    }
++	}
++      gui_put_x_image (f, ximg, img->pixmap, width, height);
++      x_destroy_x_image (ximg);
++    }
++#elif defined HAVE_ANDROID
++  /* Android: Optimized canvas reloading. Reuse the existing pixmap.  */
++  struct android_image *ximg = android_create_image (FRAME_DISPLAY_INFO (f)->n_planes,
++						     ANDROID_Z_PIXMAP, NULL, width, height);
++  if (ximg)
++    {
++      ximg->data = xmalloc (ximg->bytes_per_line * height);
++      for (int y = 0; y < height; ++y)
++        for (int x = 0; x < width; ++x)
++          PUT_PIXEL (ximg, x, y, src[y * width + x] & 0x00FFFFFF);
++      gui_put_x_image (f, ximg, img->pixmap, width, height);
++      image_destroy_x_image (ximg);
++    }
++
++#elif defined HAVE_NS
++  /* MacOS: Inefficient canvas reloading. Instead of reusing the existing
++     NSImage it creates a new one. */
++  img->pixmap = ns_image_reset(img->pixmap, width, height);
++  for (int y = 0; y < height; ++y)
++    for (int x = 0; x < width; ++x)
++      PUT_PIXEL (img->pixmap, x, y, src[y * width + x]);
++
++#else
++  /* Platform independent canvas reloading.  Less efficient, since it recreates images and pixmaps. */
++  FRAME_TERMINAL (f)->free_pixmap (f, img->pixmap);
++  img->pixmap = NO_PIXMAP;
++  Emacs_Pix_Container ximg;
++  if (image_create_x_image_and_pixmap (f, img, width, height, 0, &ximg, 0))
++    {
++      for (int y = 0; y < height; ++y)
++        for (int x = 0; x < width; ++x)
++          {
++            uint32_t c = src[y * width + x],
++		     r = (c >> 16) & 255,
++		     g = (c >>  8) & 255,
++		     b = c        & 255;
++            PUT_PIXEL (ximg, x, y, lookup_rgb_color (f, r, g, b));
++          }
++      image_put_x_image (f, img, ximg, 0);
++    }
++#endif
++
++  unblock_input ();
++}
++
++/* Access canvas buffer. */
++
++uint32_t*
++canvas_data (Lisp_Object image)
++{
++  struct image_keyword fmt[CANVAS_LAST];
++  struct canvas* c = canvas_get (image, fmt);
++
++  if (!c)
++    error ("Not a canvas");
++
++  return c->data;
++}
++
++DEFUN ("canvas-refresh", Fcanvas_refresh, Scanvas_refresh, 1, 2, 0,
++       doc: /* Refresh canvas IMAGE and update it on screen.
++
++If RELOAD-DATA is non-nil, reload the :data from the image
++specification.
++
++`redisplay' must be called after `canvas-refresh' such that the updated
++canvas is displayed even if double buffering is enabled, for example
++when a canvas is updated in a loop:
++
++  (dotimes (i 100)
++    (aset (plist-get (cdr canvas) :data) i #xFF)
++    (canvas-refresh canvas 'reload-data)
++    (redisplay))
++
++When `canvas-refresh' is called from a timer or a command, `redisplay'
++will be called implicitly after the timer or command.  */)
++  (Lisp_Object image, Lisp_Object reload_data)
++{
++  struct image_keyword fmt[CANVAS_LAST];
++  struct canvas* c = canvas_get (image, fmt);
++
++  if (!c)
++    error ("Not a canvas");
++
++  /* Reload :data or :file from the image specification.  */
++  if (!NILP (reload_data))
++    canvas_apply_data (c, fmt);
++
++  /* Increment refresh counter; reset to one on overflow, since the
++     refresh counter must always be greater than zero.  */
++  if (++c->refresh == 0)
++    c->refresh = 1;
++
++#ifdef HAVE_WINDOW_SYSTEM
++  /* Redraw all image glyphs.  */
++  block_input ();
++  redraw_image_glyphs (image);
++  /* We do not call `redisplay' or `flush_frame' here. This means the
++     canvas images are not updated immediately on screen, since the
++     double buffer won't be flipped immediately.  The next call to
++     `redisplay' will flip the double buffer.  */
++  unblock_input ();
++#endif
++
++  return Qnil;
++}
+ 
+ 
+ /***********************************************************************
+@@ -12981,6 +13446,7 @@ initialize_image_type (struct image_type const *type)
+ #endif
+  { SYMBOL_INDEX (Qxbm), xbm_image_p, xbm_load, image_clear_image },
+  { SYMBOL_INDEX (Qpbm), pbm_image_p, pbm_load, image_clear_image },
++ { SYMBOL_INDEX (Qcanvas), canvas_image_p, canvas_load, image_clear_image },
+ };
+ 
+ #if HAVE_NATIVE_IMAGE_API
+@@ -13131,6 +13597,13 @@ syms_of_image (void)
+ 	);
+ #endif
+ 
++  DEFSYM (Qcanvas, "canvas");
++  add_image_type (Qcanvas);
++
++  canvas_map = make_hash_table (&hashtest_eq, DEFAULT_HASH_SIZE, Weak_Key);
++  staticpro (&canvas_map);
++  defsubr (&Scanvas_refresh);
++
+   DEFSYM (Qpbm, "pbm");
+   add_image_type (Qpbm);
+ 
+diff --git a/src/module-env-31.h b/src/module-env-31.h
+index e9827b18382..90707bc3b30 100644
+--- a/src/module-env-31.h
++++ b/src/module-env-31.h
+@@ -1,3 +1,12 @@
+   /* Add module environment functions newly added in Emacs 31 here.
+      Before Emacs 31 is released, remove this comment and start
+      module-env-32.h on the master branch.  */
++
++  /* Get pointer to the pixel buffer of CANVAS.  The buffer is in row
++     major order and has the size width * height.  The pixel format is
++     ARGB32.  The pointer will be valid as long as CANVAS is alive,
++     and until it's dimensions have not been changed.
++     Return NULL in case error.   */
++
++  uint32_t* (*canvas_data) (emacs_env *env, emacs_value canvas)
++    EMACS_ATTRIBUTE_NONNULL(1);
+diff --git a/src/nsimage.m b/src/nsimage.m
+index 426ce20eb05..f396d424ffe 100644
+--- a/src/nsimage.m
++++ b/src/nsimage.m
+@@ -256,6 +256,13 @@ Updated by Christian Limpach (chris@nice.ch)
+   [(EmacsImage *)img setAlphaAtX: x Y: y to: a];
+ }
+ 
++void *
++ns_image_reset (void *img, int width, int height)
++{
++  [(EmacsImage *)img release];
++  return ns_image_for_XPM (width, height, 32);
++}
++
+ size_t
+ ns_image_size_in_bytes (void *img)
+ {
+diff --git a/src/nsterm.h b/src/nsterm.h
+index b21dd519e4b..69f565d51f9 100644
+--- a/src/nsterm.h
++++ b/src/nsterm.h
+@@ -1215,6 +1215,7 @@ #define NSAPP_DATA2_RUNFILEDIALOG 11
+ extern unsigned long ns_get_pixel (void *img, int x, int y);
+ extern void ns_put_pixel (void *img, int x, int y, unsigned long argb);
+ extern void ns_set_alpha (void *img, int x, int y, unsigned char a);
++extern void *ns_image_reset (void *img, int width, int height);
+ 
+ extern int ns_display_pixel_height (struct ns_display_info *);
+ extern int ns_display_pixel_width (struct ns_display_info *);
+diff --git a/src/xdisp.c b/src/xdisp.c
+index 5377d5e8ada..9a98f95031a 100644
+--- a/src/xdisp.c
++++ b/src/xdisp.c
+@@ -32756,6 +32756,74 @@ append_stretch_glyph (struct it *it, Lisp_Object object,
+     IT_EXPAND_MATRIX_WIDTH (it, area);
+ }
+ 
++static void redraw_image_glyphs_window (struct window *w, Lisp_Object spec)
++{
++  if (w->current_matrix == NULL)
++    return;
++
++  struct frame* f = WINDOW_XFRAME (w);
++
++  if (w->must_be_updated_p)
++    {
++      SET_FRAME_GARBAGED (f);
++      return;
++    }
++
++  for (int y = 0; y < w->current_matrix->nrows; ++y)
++    {
++      struct glyph_row *row = w->current_matrix->rows + y;
++      if (row->enabled_p)
++	  {
++	  int start = row->x;
++	  for (int x = 0; x < row->used[TEXT_AREA]; ++x)
++	    {
++	      struct glyph *glyph = row->glyphs[TEXT_AREA] + x;
++	      if (glyph->type == IMAGE_GLYPH)
++		{
++		  struct image* img = IMAGE_OPT_FROM_ID (f, glyph->u.img_id);
++		  if (img && EQ (img->spec, spec))
++		    {
++		      prepare_image_for_display (f, img);
++		      draw_glyphs (w, start, row, TEXT_AREA, x, x + 1, DRAW_NORMAL_TEXT, 0);
++		    }
++		}
++	      start += glyph->pixel_width;
++	    }
++	}
++    }
++}
++
++static void redraw_image_glyphs_window_tree (struct window *w, Lisp_Object spec)
++{
++  while (w)
++    {
++      if (WINDOWP (w->contents))
++	redraw_image_glyphs_window_tree (XWINDOW (w->contents), spec);
++      else
++	redraw_image_glyphs_window (w, spec);
++      w = NILP (w->next) ? NULL : XWINDOW (w->next);
++    }
++}
++
++/* redraw_image_glyphs: Redraw only the image glyphs.  Image redrawing is similar to the
++   handling of Expose or GraphicsExpose events in xterm.c.
++   GraphicsExpose event
++      -> expose_frame -> expose_window_tree -> expose_window
++      -> expose_line -> expose_area -> draw_glyphs */
++
++void redraw_image_glyphs (Lisp_Object spec)
++{
++  Lisp_Object tail, frame;
++  FOR_EACH_FRAME (tail, frame)
++    {
++      /* When the frame is garbaged, wait for full redisplay.  Only use
++         the fast path when the frame is in a consistent state. */
++      struct frame* f = XFRAME (frame);
++      if (!FRAME_GARBAGED_P (f))
++        redraw_image_glyphs_window_tree (XWINDOW (f->root_window), spec);
++    }
++}
++
+ #endif	/* HAVE_WINDOW_SYSTEM */
+ 
+ /* Produce a stretch glyph for iterator IT.  IT->object is the value
+diff --git a/test/data/image/canvas-argb b/test/data/image/canvas-argb
+new file mode 100644
+index 0000000000000000000000000000000000000000..c7d04cf59e56b6b784cb40b1d7240da1b4f3bd72
+GIT binary patch
+literal 50176
+zcmeIwF%bX&41_SGzx2xJk^uu;YD*q4zyJdbFu(u<3^2d|0}L?000Rs#zyJdbFu(u<
+z3^2d|0}L?000Rs#zyJdbFu(u<3^2d|0}L?000Rs#zyJdbFu(u<3^2d|0}L?000Rs#
+zzyJdbFu(u<3^2d|0}L?000Rs#zyJdbFu(u<3^2d|0}L?000Rs#zyJdbFu(u<3^2d|
+z0}L?000Rs#zyJdbFu(u<3^2d|0}L?000Rs#zyJdbFu(u<3^2d|0}L?000Rs#zyJdb
+zFu(u<3^2d|0}L?000Rs#zyJdbFu(u<3^2d|0}L?000Rs#zyJdbFu(u<3^2d|0}L?0
+J00Rs>891>I0^k4u
+
+literal 0
+HcmV?d00001
+
+diff --git a/test/src/emacs-module-resources/mod-test.c b/test/src/emacs-module-resources/mod-test.c
+index a5aeda0a666..1a6a5ff95bc 100644
+--- a/test/src/emacs-module-resources/mod-test.c
++++ b/test/src/emacs-module-resources/mod-test.c
+@@ -752,6 +752,118 @@ Fmod_test_make_string (emacs_env *env, ptrdiff_t nargs,
+   return ret;
+ }
+ 
++// canvas djb2 hash
++
++static uint32_t
++canvas_hash (uint32_t *buf, int width, int height)
++{
++  uint32_t hash = 5381;
++
++  for (int i = 0; i < width *height; i++)
++    hash = hash * 33 ^ buf[i];
++
++  return hash;
++}
++
++static emacs_value
++Fmod_test_canvas_read (emacs_env *env, ptrdiff_t nargs,
++		  emacs_value *args, void *data)
++{
++  assert (nargs == 3);
++  uint32_t* buf = env->canvas_data (env, args[0]);
++
++  if (!buf)
++    {
++      signal_error(env, "Not a valid canvas");
++      return env->intern (env, "nil");
++    }
++
++  int width  = (int) env->extract_integer (env, args[1]);
++  int height = (int) env->extract_integer (env, args[2]);
++
++  /* Validate dimensions against the canvas image spec. */
++  emacs_value Qimage_property = env->intern (env, "image-property");
++  emacs_value Qdata_width     = env->intern (env, ":data-width");
++  emacs_value Qdata_height    = env->intern (env, ":data-height");
++  emacs_value iw_val = env->funcall (env, Qimage_property, 2,
++                                     (emacs_value[]){args[0], Qdata_width});
++  emacs_value ih_val = env->funcall (env, Qimage_property, 2,
++                                     (emacs_value[]){args[0], Qdata_height});
++  int iw = (int) env->extract_integer (env, iw_val);
++  int ih = (int) env->extract_integer (env, ih_val);
++
++  if (width != iw || height != ih)
++    {
++      signal_error (env, "Canvas size mismatch");
++      return env->intern (env, "nil");
++    }
++
++  uint32_t hash = canvas_hash (buf, width, height);
++
++  return env->make_integer (env, (intmax_t) hash);
++}
++
++static emacs_value
++Fmod_test_canvas_write (emacs_env *env, ptrdiff_t nargs,
++		  emacs_value *args, void *data)
++{
++  assert (nargs == 3);
++  uint32_t* buf = env->canvas_data (env, args[0]);
++
++  if (!buf)
++    {
++      signal_error(env, "Not a valid canvas");
++      return env->intern (env, "nil");
++    }
++
++  int width  = (int) env->extract_integer (env, args[1]);
++  int height = (int) env->extract_integer (env, args[2]);
++
++  /* Validate dimensions against the canvas image spec. */
++  emacs_value Qimage_property = env->intern (env, "image-property");
++  emacs_value Qdata_width     = env->intern (env, ":data-width");
++  emacs_value Qdata_height    = env->intern (env, ":data-height");
++  emacs_value iw_val = env->funcall (env, Qimage_property, 2,
++                                     (emacs_value[]){args[0], Qdata_width});
++  emacs_value ih_val = env->funcall (env, Qimage_property, 2,
++                                     (emacs_value[]){args[0], Qdata_height});
++  int iw = (int) env->extract_integer (env, iw_val);
++  int ih = (int) env->extract_integer (env, ih_val);
++
++  if (width != iw || height != ih)
++    {
++      signal_error (env, "Canvas size mismatch");
++      return env->intern (env, "nil");
++    }
++
++  for (int i = 0; i < width * height; i++)
++    buf[i] = ~buf[i]; // invert the pixels
++
++  emacs_value canvas_args[2] = {args[0], env->intern (env, "nil")};
++  env->funcall (env, env->intern (env, "canvas-refresh"), 2, canvas_args);
++
++  return env->intern (env, "t");
++}
++
++static emacs_value
++Fmod_test_canvas_invalid (emacs_env *env, ptrdiff_t nargs,
++          emacs_value *args, void *data)
++{
++  assert (nargs == 1);
++  uint32_t *buf = env->canvas_data (env, args[0]);
++
++   if (env->non_local_exit_check (env) != emacs_funcall_exit_return)
++     env->non_local_exit_clear (env); // don't propagate the error to ERT
++
++  if (buf)
++    {
++      signal_error (env, "Expected invalid canvas, but canvas_data returned non-NULL");
++      return env->intern (env, "nil");
++    }
++
++  return env->intern (env, "t");
++}
++
+ /* Lisp utilities for easier readability (simple wrappers).  */
+ 
+ /* Provide FEATURE to Emacs.  */
+@@ -853,6 +965,9 @@ #define DEFUN(lsym, csym, amin, amax, doc, data) \
+   DEFUN ("mod-test-funcall", Fmod_test_funcall, 1, emacs_variadic_function,
+          NULL, NULL);
+   DEFUN ("mod-test-make-string", Fmod_test_make_string, 2, 2, NULL, NULL);
++  DEFUN ("mod-test-canvas-read", Fmod_test_canvas_read, 3, 3, NULL, NULL);
++  DEFUN ("mod-test-canvas-write", Fmod_test_canvas_write, 3, 3, NULL, NULL);
++  DEFUN ("mod-test-canvas-invalid", Fmod_test_canvas_invalid, 1, 1, NULL, NULL);
+ 
+ #undef DEFUN
+ 
+diff --git a/test/src/emacs-module-tests.el b/test/src/emacs-module-tests.el
+index e678fba3873..e24b1d432f5 100644
+--- a/test/src/emacs-module-tests.el
++++ b/test/src/emacs-module-tests.el
+@@ -588,4 +588,104 @@ mod-test-make-string/nonempty
+         (should (string-equal first second))
+         (should-not (eq first second))))))
+ 
++;;; Canvas tests
++
++(ert-deftest mod-test-canvas/valid ()
++  (let* ((width 128) (height 215)
++         (canvas `(image :type canvas :data-width ,width :data-height ,height))
++         (hash-before (mod-test-canvas-read canvas width height)))
++    (should (integerp hash-before))
++    (should (mod-test-canvas-write canvas width height))
++    (let ((hash-after (mod-test-canvas-read canvas width height)))
++      (should (integerp hash-after))
++      (should (not (eql hash-before hash-after))))))
++
++(ert-deftest mod-test-canvas/invalid ()
++  (should-error (mod-test-canvas-read nil nil nil))
++  (should-error (mod-test-canvas-write nil nil nil))
++  (should (mod-test-canvas-invalid nil))
++  (should (mod-test-canvas-invalid '(image :type xbm :data "")))
++  (should-error (mod-test-canvas-read '(image :type canvas) 256 527))
++  (should-error (mod-test-canvas-write '(image :type canvas) 256 527)))
++
++(ert-deftest mod-test-canvas/vector ()
++  (let* ((width 327) (height 98)
++         (canvas `(image :type canvas
++                         :data-width ,width :data-height ,height
++                         :data ,(make-vector (* width height) #xFFFF0000)))
++         (hash-before (mod-test-canvas-read canvas width height)))
++    (should (integerp hash-before))
++    (should (mod-test-canvas-write canvas width height))
++    (should (not (eql (mod-test-canvas-read canvas width height) hash-before))))
++  ;; Mismatched sizes: passing wrong width/height should error.
++  (let* ((width 327) (height 98)
++        (canvas `(image :type canvas
++                        :data-width ,width :data-height ,height
++                        :data ,(make-vector (* width height) #xFFFF0000))))
++    (should-error (mod-test-canvas-read canvas 501 72))
++    (should-error (mod-test-canvas-write canvas 187 210))))
++
++(ert-deftest mod-test-canvas/vector-reload ()
++  (let* ((width 198) (height 720)
++         (test-vector (make-vector (* width height) #xFFFF0000))
++         (canvas `(image :type canvas
++                         :data-width ,width :data-height ,height
++                         :data ,test-vector))
++         (hash-initial (mod-test-canvas-read canvas width height)))
++    (should (integerp hash-initial))
++    (dotimes (i 50)
++      (aset test-vector i #xFFFFFFFF))
++    (canvas-refresh canvas t)
++    (let ((hash-mutated (mod-test-canvas-read canvas width height)))
++      (should (integerp hash-mutated))
++      (should (not (eql hash-initial hash-mutated))))))
++
++(ert-deftest mod-test-canvas/unibyte ()
++  (let* ((width 458) (height 278)
++         (pixel (unibyte-string #xFF #x80 #x40 #x80))
++         (string-data (apply #'concat (make-list (* width height) pixel)))
++         (canvas `(image :type canvas
++                         :data-width ,width :data-height ,height
++                         :data ,string-data))
++         (hash-before (mod-test-canvas-read canvas width height)))
++    (should (integerp hash-before))
++    (should (mod-test-canvas-write canvas width height))
++    (should (not (eql (mod-test-canvas-read canvas width height) hash-before))))
++  ;; Mismatched sizes: passing wrong width/height should error.
++  (let* ((width 458) (height 278)
++         (pixel (unibyte-string #xFF #x80 #x40 #x80))
++         (string-data (apply #'concat (make-list (* width height) pixel)))
++         (canvas `(image :type canvas
++                         :data-width ,width :data-height ,height
++                         :data ,string-data)))
++    (should-error (mod-test-canvas-read canvas 76 38))
++    (should-error (mod-test-canvas-write canvas 378 453))))
++
++(ert-deftest mod-test-canvas/file ()
++  (let* ((width 128) (height 98)
++         (canvas (create-image "../data/image/canvas-argb"
++                               'canvas nil
++                               :data-width width :data-height height))
++         (hash-before (mod-test-canvas-read canvas width height)))
++    (should (integerp hash-before))
++    (should (mod-test-canvas-write canvas width height))
++    (should (not (eql (mod-test-canvas-read canvas width height) hash-before))))
++  ;; Mismatched sizes: passing wrong width/height should error.
++  (let ((canvas (create-image "../data/image/canvas-argb"
++                              'canvas nil
++                              :data-width 128 :data-height 98)))
++    (should-error (mod-test-canvas-read canvas 28 76))
++    (should-error (mod-test-canvas-write canvas 398 712))))
++
++(ert-deftest mod-test-canvas/gc-stress ()
++  "Allocate canvases in batches with GC between batches.
++Verifies that canvas pixel buffers are freed correctly and do not
++cause use-after-free crashes or GC assertion failures."
++  (dotimes (_ 5)
++    (dotimes (_ 20)
++      (let* ((canvas '(image :type canvas :data-width 78 :data-height 342))
++             (hash (mod-test-canvas-read canvas 78 342)))
++        (should (integerp hash))))
++    (garbage-collect)))
++
+ ;;; emacs-module-tests.el ends here
+-- 
+2.52.0
+
