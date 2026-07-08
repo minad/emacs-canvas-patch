@@ -1,5 +1,8 @@
 ;;; Create a canvas from a vector, and refresh it from Lisp -*- lexical-binding: t -*-
 
+(defvar test-canvas1)
+(defvar test-canvas2)
+
 (setq test-canvas1 `(image :type canvas
                            :data-width 200
                            :data-height 100
