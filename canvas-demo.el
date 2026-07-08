@@ -10,7 +10,6 @@
 (defvar canvas-demo-canvas1)
 (defvar canvas-demo-canvas2)
 (defvar canvas-demo-frame)
-(defvar canvas-demo-tick)
 (defvar canvas-demo-time)
 (defvar canvas-demo-mode-line)
 
@@ -26,7 +25,6 @@
                                   :margin (20 . 20)
                                   :scale 2
                                   :canvas-id 2)
-      canvas-demo-tick 0
       canvas-demo-frame 0
       canvas-demo-time (float-time)
       canvas-demo-mode-line nil)
@@ -44,11 +42,9 @@
 (run-with-timer
  nil (/ 1 100.0)
  (lambda ()
-   (canvas-demo-render canvas-demo-canvas1 canvas-demo-tick)
-   (canvas-demo-render canvas-demo-canvas2 (* 3 canvas-demo-tick))
+   (canvas-demo-render canvas-demo-canvas1 canvas-demo-canvas2)
    (canvas-refresh canvas-demo-canvas1)
    (canvas-refresh canvas-demo-canvas2)
-   (setq canvas-demo-tick (% (1+ canvas-demo-tick) 400))
    (let* ((time (float-time))
           (delta (- time canvas-demo-time)))
      (incf canvas-demo-frame)
