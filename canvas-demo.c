@@ -15,14 +15,13 @@ static emacs_value render(emacs_env* env, ptrdiff_t nargs,
     uint32_t* pixel1 = env->canvas_data(env, canvas1);
     uint32_t* pixel2 = env->canvas_data(env, canvas2);
     if (pixel1 && pixel2) {
-        if (tick >= height) {
+        if (!tick) {
             tick = 0;
             memset(pixel1, 255, 4 * width * height);
             memset(pixel2, 255, 4 * width * height);
             last_x = width / 2, last_y = height / 2;
-        } else {
-            ++tick;
         }
+        tick = (tick + 1) % height;
         int next_x = last_x, next_y = last_y;
         switch (dir) {
         case 0:  next_y -= 2 * tick; break;
