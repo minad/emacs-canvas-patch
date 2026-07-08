@@ -7,17 +7,27 @@
 
 (switch-to-buffer (get-buffer-create "*canvas-demo*"))
 
-(defvar canvas-demo-canvas)
+(defvar canvas-demo-canvas1)
+(defvar canvas-demo-canvas2)
 (defvar canvas-demo-frame)
 (defvar canvas-demo-tick)
 (defvar canvas-demo-time)
 (defvar canvas-demo-mode-line)
 
-(setq canvas-demo-canvas '(image :type canvas
-                                 :data-width 400
-                                 :data-height 300
-                                 :margin (20 . 20)
-                                 :scale 2)
+(setq canvas-demo-canvas1 '(image :type canvas
+                                  :data-width 400
+                                  :data-height 300
+                                  :margin (20 . 20)
+                                  :scale 2
+                                  ;;:canvas-id 1
+                                  )
+      canvas-demo-canvas2 '(image :type canvas
+                                  :data-width 400
+                                  :data-height 300
+                                  :margin (20 . 20)
+                                  :scale 2
+                                  ;;:canvas-id 2
+                                  )
       canvas-demo-tick 0
       canvas-demo-frame 0
       canvas-demo-time (float-time)
@@ -30,14 +40,17 @@
             mode-line-mule-info nil
             mode-line-remote nil)
 
-(insert (propertize "#" 'display canvas-demo-canvas))
+(insert (propertize "#" 'display canvas-demo-canvas1))
+(insert (propertize "#" 'display canvas-demo-canvas2))
 
 (run-with-timer
  nil (/ 1 100.0)
  (lambda ()
-   (canvas-demo-render canvas-demo-canvas canvas-demo-tick)
-   (canvas-refresh canvas-demo-canvas)
-   (setq canvas-demo-tick (% (1+ canvas-demo-tick) 200))
+   (canvas-demo-render canvas-demo-canvas1 canvas-demo-tick)
+   (canvas-demo-render canvas-demo-canvas2 (* 3 canvas-demo-tick))
+   (canvas-refresh canvas-demo-canvas1)
+   (canvas-refresh canvas-demo-canvas2)
+   (setq canvas-demo-tick (% (1+ canvas-demo-tick) 400))
    (let* ((time (float-time))
           (delta (- time canvas-demo-time)))
      (incf canvas-demo-frame)
