@@ -7,12 +7,14 @@
                            :id test-canvas1
                            :data-width 200
                            :data-height 100
+                           :rotation 90
                            :data ,(make-vector (* 200 100) #xFFFF0000)))
 
 (setq test-canvas2 `(image :type canvas
                            :id test-canvas2
                            :data-width 200
                            :data-height 100
+                           :scale 3.5
                            :data ,(make-vector (* 200 100) #xFF0000FF)))
 
 (insert (propertize "#" 'display test-canvas1))
