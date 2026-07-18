@@ -4,13 +4,13 @@
 (defvar test-canvas2)
 
 (setq test-canvas1 `(image :type canvas
-                           :canvas-id test-canvas1
+                           :id test-canvas1
                            :data-width 200
                            :data-height 100
                            :data ,(make-vector (* 200 100) #xFFFF0000)))
 
 (setq test-canvas2 `(image :type canvas
-                           :canvas-id test-canvas2
+                           :id test-canvas2
                            :data-width 200
                            :data-height 100
                            :data ,(make-vector (* 200 100) #xFF0000FF)))

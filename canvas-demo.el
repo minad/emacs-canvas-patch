@@ -18,13 +18,13 @@
                                   :data-height 300
                                   :margin (20 . 20)
                                   :scale 2
-                                  :canvas-id canvas1)
+                                  :id canvas1)
       canvas-demo-canvas2 '(image :type canvas
                                   :data-width 400
                                   :data-height 300
                                   :margin (20 . 20)
                                   :scale 2
-                                  :canvas-id canvas2)
+                                  :id canvas2)
       canvas-demo-frame 0
       canvas-demo-time (float-time)
       canvas-demo-mode-line nil)
