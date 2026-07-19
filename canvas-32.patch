@@ -1,4 +1,4 @@
-From 2cae7c4c70daf731e868c9c45a92d260c32d0cdc Mon Sep 17 00:00:00 2001
+From 033894accc315ce4b46d38bb836b687b44bb7ef7 Mon Sep 17 00:00:00 2001
 From: Divya Ranjan <divya@subvertising.org>
 Date: Wed, 8 Jul 2026 07:20:39 +0000
 Subject: [PATCH] New image type canvas
@@ -66,9 +66,9 @@ back to a full frame redraw if the frame is garbaged.
 (mod-test-canvas/vector-reload, mod-test-canvas/unibyte)
 (mod-test-canvas/file, mod-test-canvas/gc-stress): New tests.
 ---
- doc/lispref/display.texi                   |  76 +++
+ doc/lispref/display.texi                   |  75 +++
  doc/lispref/elisp.texi                     |   1 +
- doc/lispref/internals.texi                 |  45 ++
+ doc/lispref/internals.texi                 |  46 ++
  etc/NEWS                                   |   8 +
  lisp/image.el                              |   3 +
  src/dispextern.h                           |  22 +-
@@ -83,18 +83,18 @@ back to a full frame redraw if the frame is garbaged.
  14 files changed, 973 insertions(+), 20 deletions(-)
 
 diff --git a/doc/lispref/display.texi b/doc/lispref/display.texi
-index 0d0899e418c..ac71287b8a9 100644
+index 0d0899e418c..3bbd37e9f9f 100644
 --- a/doc/lispref/display.texi
 +++ b/doc/lispref/display.texi
 @@ -6024,6 +6024,7 @@ displayed (@pxref{Display Feature Testing}).
  * Defining Images::     Convenient ways to define an image for later use.
  * Showing Images::      Convenient ways to display an image once it is defined.
  * Multi-Frame Images::  Some images contain more than one frame.
-+* Canvas Images::       Easily modifiable image with an ARGB32 pixel buffer.
++* Canvas Images::       Easily modifiable image with a pixel buffer.
  * Image Cache::         Internal mechanisms of image display.
  @end menu
  
-@@ -7475,6 +7476,81 @@ This function returns the timer responsible for animating @var{image},
+@@ -7475,6 +7476,80 @@ This function returns the timer responsible for animating @var{image},
  if there is one.
  @end defun
  
@@ -102,10 +102,10 @@ index 0d0899e418c..ac71287b8a9 100644
 +@subsection Canvas Images
 +@cindex canvas image
 +
-+Canvas images have an associated writeable ARGB32 pixel buffer.  They
-+can be used by dynamic modules to efficiently display and update images,
-+for example by document viewers, visualization tools, dynamically
-+computed animations or games.
++Canvas images can be used to efficiently display and update images, for
++example by document viewers, visualization tools, dynamically computed
++animations or games.  Canvas images have an associated writeable pixel
++buffer in ARGB32 format on all platforms.
 +
 +An image specifier with @code{:type canvas} creates a canvas, for instance
 +as follows:
@@ -123,12 +123,11 @@ index 0d0899e418c..ac71287b8a9 100644
 +mandatory.  The width and height must both be positive integers and the
 +id must be a symbol.
 +
-+Like other images, canvases can also be created by either providing
-+ARGB32 data as a vector of fixnums or as an unibyte string in
-+@code{:data}.  Path to a file containing the ARGB32 data in @code{:file}
-+can also be provided.  A canvas can also be created via
-+@code{create-image} as follows where the data is initially loaded from a
-+file, or from a vector:
++Canvases can be created by either providing ARGB32 data as a vector of
++fixnums or as an unibyte string in @code{:data}.  Path to a file
++containing the ARGB32 data in @code{:file} can also be provided.
++Furthermore @code{create-image} can create canvas images as follows,
++where the data is initially loaded from a file, or from a vector:
 +
 +@lisp
 +(setq my-file-canvas (create-image "/path/to/file"
@@ -177,19 +176,19 @@ index 0d0899e418c..ac71287b8a9 100644
  @node Image Cache
  @subsection Image Cache
 diff --git a/doc/lispref/elisp.texi b/doc/lispref/elisp.texi
-index 2944b598178..46f8b41a245 100644
+index 2944b598178..45c110bb5a0 100644
 --- a/doc/lispref/elisp.texi
 +++ b/doc/lispref/elisp.texi
 @@ -1577,6 +1577,7 @@ Images
  * Showing Images::          Convenient ways to display an image once
                                it is defined.
  * Multi-Frame Images::      Some images contain more than one frame.
-+* Canvas Images::           Easily modifiable image with an ARGB32 pixel buffer.
++* Canvas Images::           Easily modifiable image with a pixel buffer.
  * Image Cache::             Internal mechanisms of image display.
  
  Buttons
 diff --git a/doc/lispref/internals.texi b/doc/lispref/internals.texi
-index 0cb3e0ccb1d..12990ef7179 100644
+index 0cb3e0ccb1d..88f3421b904 100644
 --- a/doc/lispref/internals.texi
 +++ b/doc/lispref/internals.texi
 @@ -1117,6 +1117,7 @@ option.  @xref{Initial Options,,,emacs, The GNU Emacs Manual}.
@@ -200,7 +199,7 @@ index 0cb3e0ccb1d..12990ef7179 100644
  * Module Nonlocal::
  @end menu
  
-@@ -2020,6 +2021,50 @@ done, close the file descriptor using @code{close}.  @ref{Low-Level
+@@ -2020,6 +2021,51 @@ done, close the file descriptor using @code{close}.  @ref{Low-Level
  I/O,,,libc}.
  @end deftypefun
  
@@ -208,17 +207,18 @@ index 0cb3e0ccb1d..12990ef7179 100644
 +@subsection Using Canvas API With Modules
 +
 +Emacs supports creating image objects called ``canvas'' which have an
-+ARGB32 pixel buffer associated with them.  These image objects can be
-+accessed and updated natively via dynamic modules.  @xref{Canvas Images}
-+for what they are.
++pixel buffer associated with them.  These image objects can be accessed
++and updated natively via dynamic modules.  @xref{Canvas Images} for what
++they are.
 +
 +The following functions allow you to operate on canvas image objects with dynamic modules:
 +
 +@anchor{canvas_data}
 +@deftypefn Function uint32_t *canvas_data (emacs_env *@var{env}, emacs_value @var{canvas})
 +The function gives access to the pixel buffer of @var{canvas}.  The
-+pixel buffer (of ARGB32 format) is in row-major order with a size
-+@var{width} * @var{height}.
++pixel buffer is in row-major order with a size @var{width} * @var{height}.
++The pixel format is ARGB32 on all platforms.  Return @code{NULL} in case
++of error.
 +@end deftypefn
 +
 +Note that the pixel buffer is only valid as the canvas object is alive
