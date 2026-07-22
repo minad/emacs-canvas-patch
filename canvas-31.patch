@@ -1,4 +1,4 @@
-From 7edb4c1fcc782cff77f4c39ecc16ef115138b9ff Mon Sep 17 00:00:00 2001
+From 8a6ffb08fe010d74a3fe3af9e4109fbc94918cb6 Mon Sep 17 00:00:00 2001
 From: Divya Ranjan <divya@subvertising.org>
 Date: Wed, 8 Jul 2026 07:20:39 +0000
 Subject: [PATCH] New image type canvas
@@ -83,7 +83,7 @@ back to a full frame redraw if the frame is garbaged.
  14 files changed, 975 insertions(+), 20 deletions(-)
 
 diff --git a/doc/lispref/display.texi b/doc/lispref/display.texi
-index e1b46d51489..f74f74c4db9 100644
+index e1b46d51489..09349a72194 100644
 --- a/doc/lispref/display.texi
 +++ b/doc/lispref/display.texi
 @@ -6021,6 +6021,7 @@ displayed (@pxref{Display Feature Testing}).
@@ -107,7 +107,7 @@ index e1b46d51489..f74f74c4db9 100644
 +animations or games.  Canvas images have an associated writeable pixel
 +buffer in ARGB32 format on all platforms.  Unlike other image types supported
 +in Emacs, canvas images do not require creating a new Emacs Lisp object
-+everytime they get updated.
++every time they get updated.
 +
 +An image specifier with @code{:type canvas} creates a canvas, for instance
 +as follows:
@@ -275,7 +275,7 @@ index 1270b95e622..873411477c4 100644
  ** Unexec dumper removed.
  The traditional unexec dumper, deprecated since Emacs 27, has been
 diff --git a/lisp/image.el b/lisp/image.el
-index dbfbc266445..fc111c3c78b 100644
+index dbfbc266445..5f069292544 100644
 --- a/lisp/image.el
 +++ b/lisp/image.el
 @@ -562,6 +562,9 @@ Images should not be larger than specified by `max-image-size'."
@@ -283,7 +283,7 @@ index dbfbc266445..fc111c3c78b 100644
          (setq image (nconc image (list :map
                                         (image--compute-map image)))))
 +      ;; Add unique canvas id if not already present
-+      (when (eq type 'canvas)
++      (when (and (eq type 'canvas) (not (plist-get props :id)))
 +        (setq image (nconc image (list :id (gensym)))))
        image)))
  
@@ -378,7 +378,7 @@ index 142ca675734..5de8299f9ac 100644
  }
  
 diff --git a/src/image.c b/src/image.c
-index e76911c3cd3..33fa8d57c64 100644
+index e76911c3cd3..c4c5a7bf8ac 100644
 --- a/src/image.c
 +++ b/src/image.c
 @@ -110,6 +110,21 @@ static unsigned long image_alloc_image_color (struct frame *, struct image *,
@@ -446,10 +446,10 @@ index e76911c3cd3..33fa8d57c64 100644
 +	     check the data for equality, such that data can be changed
 +	     via mutation to refresh the canvas. Filter these keys out.
 +	  */
-+	  if (is_canvas ? EQ (key, QCdata) :
-+	      EQ (key, QCanimate_buffer)
-+	      || EQ (key, QCanimate_tardiness)
-+	      || EQ (key, QCanimate_position))
++	  if (!(is_canvas ? EQ (key, QCdata) :
++		(EQ (key, QCanimate_buffer)
++		 || EQ (key, QCanimate_tardiness)
++		 || EQ (key, QCanimate_position))))
  	    {
  	      out = Fcons (value, out);
  	      out = Fcons (key, out);
@@ -1242,7 +1242,7 @@ index a5aeda0a666..488b6bcb1ee 100644
  #undef DEFUN
  
 diff --git a/test/src/emacs-module-tests.el b/test/src/emacs-module-tests.el
-index e678fba3873..d27730a5499 100644
+index e678fba3873..c10029b5fd2 100644
 --- a/test/src/emacs-module-tests.el
 +++ b/test/src/emacs-module-tests.el
 @@ -588,4 +588,121 @@ See Bug#36226."
@@ -1337,7 +1337,7 @@ index e678fba3873..d27730a5499 100644
 +
 +(ert-deftest mod-test-canvas/file ()
 +  ;; Generate the canvas data file
-+  (test-canvas-gen-file 128 98 #x808000000)
++  (test-canvas-gen-file 128 98 #x80800000)
 +  (let* ((width 128) (height 98)
 +         (canvas (create-image "../data/image/canvas-argb"
 +                               'canvas nil
