@@ -1,4 +1,4 @@
-From d91b3d00ab979bee5b254e3a341f987d46573ebb Mon Sep 17 00:00:00 2001
+From 7edb4c1fcc782cff77f4c39ecc16ef115138b9ff Mon Sep 17 00:00:00 2001
 From: Divya Ranjan <divya@subvertising.org>
 Date: Wed, 8 Jul 2026 07:20:39 +0000
 Subject: [PATCH] New image type canvas
@@ -66,7 +66,7 @@ back to a full frame redraw if the frame is garbaged.
 (mod-test-canvas/vector-reload, mod-test-canvas/unibyte)
 (mod-test-canvas/file, mod-test-canvas/gc-stress): New tests.
 ---
- doc/lispref/display.texi                   |  76 +++
+ doc/lispref/display.texi                   |  78 ++++
  doc/lispref/elisp.texi                     |   1 +
  doc/lispref/internals.texi                 |  47 ++
  etc/NEWS                                   |   8 +
@@ -80,10 +80,10 @@ back to a full frame redraw if the frame is garbaged.
  src/xdisp.c                                |  68 +++
  test/src/emacs-module-resources/mod-test.c | 115 +++++
  test/src/emacs-module-tests.el             | 117 +++++
- 14 files changed, 973 insertions(+), 20 deletions(-)
+ 14 files changed, 975 insertions(+), 20 deletions(-)
 
 diff --git a/doc/lispref/display.texi b/doc/lispref/display.texi
-index e1b46d51489..fd1f538318f 100644
+index e1b46d51489..f74f74c4db9 100644
 --- a/doc/lispref/display.texi
 +++ b/doc/lispref/display.texi
 @@ -6021,6 +6021,7 @@ displayed (@pxref{Display Feature Testing}).
@@ -94,7 +94,7 @@ index e1b46d51489..fd1f538318f 100644
  * Image Cache::         Internal mechanisms of image display.
  @end menu
  
-@@ -7472,6 +7473,81 @@ This function returns the timer responsible for animating @var{image},
+@@ -7472,6 +7473,83 @@ This function returns the timer responsible for animating @var{image},
  if there is one.
  @end defun
  
@@ -102,10 +102,12 @@ index e1b46d51489..fd1f538318f 100644
 +@subsection Canvas Images
 +@cindex canvas image
 +
-+Canvas images can be used to efficiently display and update images, for
-+example by document viewers, visualization tools, dynamically computed
++Canvas images can be updated and displayed efficiently with high frame rates,
++for example by document viewers, visualization tools, dynamically computed
 +animations or games.  Canvas images have an associated writeable pixel
-+buffer in ARGB32 format on all platforms.
++buffer in ARGB32 format on all platforms.  Unlike other image types supported
++in Emacs, canvas images do not require creating a new Emacs Lisp object
++everytime they get updated.
 +
 +An image specifier with @code{:type canvas} creates a canvas, for instance
 +as follows:
@@ -189,7 +191,7 @@ index b7809ff66da..58c207e1488 100644
  
  Buttons
 diff --git a/doc/lispref/internals.texi b/doc/lispref/internals.texi
-index 0cb3e0ccb1d..e1ae7a43d86 100644
+index 0cb3e0ccb1d..bad497f3f03 100644
 --- a/doc/lispref/internals.texi
 +++ b/doc/lispref/internals.texi
 @@ -1117,6 +1117,7 @@ option.  @xref{Initial Options,,,emacs, The GNU Emacs Manual}.
@@ -207,7 +209,7 @@ index 0cb3e0ccb1d..e1ae7a43d86 100644
 +@node Module Canvas API
 +@subsection Using Canvas API With Modules
 +
-+Emacs supports creating image objects called ``canvas'' which have an
++Emacs supports creating image objects called ``canvas'' which have a
 +pixel buffer associated with them.  These image objects can be accessed
 +and updated natively via dynamic modules.  @xref{Canvas Images} for what
 +they are.
