@@ -1,4 +1,4 @@
-From 19c94e3fc69a1e256af034ebe6c71db82e8b1b50 Mon Sep 17 00:00:00 2001
+From c0c0b09efd1e12e07f4a05ad1076d59d125b8744 Mon Sep 17 00:00:00 2001
 From: Divya Ranjan <divya@subvertising.org>
 Date: Wed, 8 Jul 2026 07:20:39 +0000
 Subject: [PATCH] New image type canvas
@@ -73,17 +73,17 @@ back to a full frame redraw if the frame is garbaged.
  lisp/image.el                              |   3 +
  src/dispextern.h                           |  22 +-
  src/emacs-module.c                         |  10 +
- src/image.c                                | 517 ++++++++++++++++++++-
+ src/image.c                                | 518 ++++++++++++++++++++-
  src/module-env-31.h                        |   9 +
  src/nsimage.m                              |   7 +
  src/nsterm.h                               |   1 +
  src/xdisp.c                                |  68 +++
  test/src/emacs-module-resources/mod-test.c | 115 +++++
  test/src/emacs-module-tests.el             | 117 +++++
- 14 files changed, 983 insertions(+), 20 deletions(-)
+ 14 files changed, 984 insertions(+), 20 deletions(-)
 
 diff --git a/doc/lispref/display.texi b/doc/lispref/display.texi
-index e1b46d51489..09349a72194 100644
+index e1b46d51489..77d61b0038e 100644
 --- a/doc/lispref/display.texi
 +++ b/doc/lispref/display.texi
 @@ -6021,6 +6021,7 @@ displayed (@pxref{Display Feature Testing}).
@@ -120,10 +120,10 @@ index e1b46d51489..09349a72194 100644
 +          :data-height 600))
 +@end lisp
 +
-+The image specification uniquely identifies a canvas image object.  The
-+properties @code{:data-width}, @code{:data-height} and @code{:id} are
-+mandatory.  The width and height must both be positive integers and the
-+id must be a symbol.
++The image specification object uniquely (with respect to @code{eq})
++identifies a canvas image object.  The properties @code{:data-width},
++@code{:data-height} and @code{:id} are mandatory.  The width and height
++must both be positive integers and the id must be a symbol.
 +
 +Canvases can be created by either providing ARGB32 data as a vector of
 +fixnums or as an unibyte string in @code{:data}.  Path to a file
@@ -378,7 +378,7 @@ index 142ca675734..5de8299f9ac 100644
  }
  
 diff --git a/src/image.c b/src/image.c
-index e76911c3cd3..30871ad9718 100644
+index e76911c3cd3..b7ff0992ae2 100644
 --- a/src/image.c
 +++ b/src/image.c
 @@ -110,6 +110,21 @@ static unsigned long image_alloc_image_color (struct frame *, struct image *,
@@ -512,7 +512,7 @@ index e76911c3cd3..30871ad9718 100644
  	  /* Do image transformations and compute masks, unless we
  	     don't have the image yet.  */
  	  if (!EQ (builtin_lisp_symbol (img->type->type), Qpostscript))
-@@ -5410,7 +5447,455 @@ xbm_load (struct frame *f, struct image *img)
+@@ -5410,7 +5447,456 @@ xbm_load (struct frame *f, struct image *img)
  
    return success_p;
  }
@@ -810,6 +810,7 @@ index e76911c3cd3..30871ad9718 100644
 +  /* Cairo: Optimized canvas reloading. Reuse the existing Cairo surface.  */
 +  cairo_surface_t* surface;
 +  if (img->cr_data
++      /* prepare_image_for_display ensures that cr_data is a surface pattern */
 +      && cairo_pattern_get_type (img->cr_data) == CAIRO_PATTERN_TYPE_SURFACE
 +      && !cairo_pattern_get_surface (img->cr_data, &surface))
 +    {
@@ -968,7 +969,7 @@ index e76911c3cd3..30871ad9718 100644
  
  
  /***********************************************************************
-@@ -12981,6 +13466,7 @@ static struct image_type const image_types[] =
+@@ -12981,6 +13467,7 @@ static struct image_type const image_types[] =
  #endif
   { SYMBOL_INDEX (Qxbm), xbm_image_p, xbm_load, image_clear_image },
   { SYMBOL_INDEX (Qpbm), pbm_image_p, pbm_load, image_clear_image },
@@ -976,7 +977,7 @@ index e76911c3cd3..30871ad9718 100644
  };
  
  #if HAVE_NATIVE_IMAGE_API
-@@ -13131,6 +13617,13 @@ non-numeric, there is no explicit limit on the size of images.  */);
+@@ -13131,6 +13618,13 @@ non-numeric, there is no explicit limit on the size of images.  */);
  	);
  #endif
  
