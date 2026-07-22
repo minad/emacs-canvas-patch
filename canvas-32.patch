@@ -1,4 +1,4 @@
-From 4181481c994ee4c6c612f0526ae1c0082cd0d3c7 Mon Sep 17 00:00:00 2001
+From a740cd3b21edb5784bd753109100aeeb2b0c4b16 Mon Sep 17 00:00:00 2001
 From: Divya Ranjan <divya@subvertising.org>
 Date: Wed, 8 Jul 2026 07:20:39 +0000
 Subject: [PATCH] New image type canvas
@@ -41,12 +41,12 @@ images, so mutating the data vector in place does not create a new cache
 entry.
 (Fclear_image_cache): Call `canvas_free_unused'.
 (image_set_transform): Use CAIRO_FILTER_GOOD instead of
-CAIRO_FILTER_BEST for canvas images, for performance.  Do not set
-image `original_width' and `original_height'.
+CAIRO_FILTER_BEST for canvas images, for performance.  Do not set image
+`original_width' and `original_height'.
 (canvas_image_p, canvas_free_unused, canvas_apply_data, canvas_get)
-(canvas_load, canvas_prepare_for_display, canvas_data): New functions
-implementing canvas creation, resizing, and reloading of `:data' or
-`:file' content.
+(canvas_parse, canvas_load, canvas_prepare_for_display, canvas_data):
+New functions implementing canvas creation, resizing, and reloading of
+`:data' or `:file' content.
 (Fcanvas_refresh): New defun `canvas-refresh', with an optional
 RELOAD-DATA argument to reread `:data' or `:file'.
 (initialize_image_type, syms_of_image): Register the `canvas' image type
@@ -73,14 +73,14 @@ back to a full frame redraw if the frame is garbaged.
  lisp/image.el                              |   3 +
  src/dispextern.h                           |  22 +-
  src/emacs-module.c                         |  10 +
- src/image.c                                | 509 ++++++++++++++++++++-
+ src/image.c                                | 516 ++++++++++++++++++++-
  src/module-env-32.h                        |   9 +
  src/nsimage.m                              |   7 +
  src/nsterm.h                               |   1 +
  src/xdisp.c                                |  68 +++
  test/src/emacs-module-resources/mod-test.c | 115 +++++
  test/src/emacs-module-tests.el             | 117 +++++
- 14 files changed, 975 insertions(+), 20 deletions(-)
+ 14 files changed, 982 insertions(+), 20 deletions(-)
 
 diff --git a/doc/lispref/display.texi b/doc/lispref/display.texi
 index 0d0899e418c..f98d79a56b0 100644
@@ -378,7 +378,7 @@ index ce6c292dbb5..26980008d27 100644
  }
  
 diff --git a/src/image.c b/src/image.c
-index 1086f474eec..97b780ed2cc 100644
+index 1086f474eec..832bd896f6c 100644
 --- a/src/image.c
 +++ b/src/image.c
 @@ -110,6 +110,21 @@ static unsigned long image_alloc_image_color (struct frame *, struct image *,
@@ -512,7 +512,7 @@ index 1086f474eec..97b780ed2cc 100644
  	  /* Do image transformations and compute masks, unless we
  	     don't have the image yet.  */
  	  if (!EQ (builtin_lisp_symbol (img->type->type), Qpostscript))
-@@ -5410,7 +5447,447 @@ xbm_load (struct frame *f, struct image *img)
+@@ -5410,7 +5447,454 @@ xbm_load (struct frame *f, struct image *img)
  
    return success_p;
  }
@@ -561,13 +561,12 @@ index 1086f474eec..97b780ed2cc 100644
 +
 +static struct canvas* canvas_list = 0;
 +
-+/* Return true if OBJECT is a valid canvas image specification.  */
++/* Parse canvas specification OBJECT and return true if valid.  */
 +
 +static bool
-+canvas_image_p (Lisp_Object object)
++canvas_parse (Lisp_Object object, struct image_keyword *fmt)
 +{
-+  struct image_keyword fmt[CANVAS_LAST];
-+  memcpy (fmt, canvas_format, sizeof fmt);
++  memcpy (fmt, canvas_format, sizeof canvas_format);
 +
 +  /* Check that only one of :data or :file is present. */
 +  if (!parse_image_spec (object, fmt, CANVAS_LAST, Qcanvas)
@@ -579,6 +578,15 @@ index 1086f474eec..97b780ed2cc 100644
 +
 +  /* Check that w*h*4 does not overflow */
 +  return w <= INT_MAX / 4 / h;
++}
++
++/* Return true if OBJECT is a valid canvas image specification.  */
++
++static bool
++canvas_image_p (Lisp_Object object)
++{
++  struct image_keyword fmt[CANVAS_LAST];
++  return canvas_parse (obj, fmt);
 +}
 +
 +/* Clear canvas list. All canvases which are not referenced anymore in
@@ -704,8 +712,7 @@ index 1086f474eec..97b780ed2cc 100644
 +static struct canvas*
 +canvas_get (Lisp_Object image, struct image_keyword *fmt)
 +{
-+  memcpy (fmt, canvas_format, sizeof canvas_format);
-+  if (!parse_image_spec (image, fmt, CANVAS_LAST, Qcanvas))
++  if (!canvas_parse (image, fmt))
 +    {
 +      image_error ("Not a canvas image specification");
 +      return NULL;
@@ -960,7 +967,7 @@ index 1086f474eec..97b780ed2cc 100644
  
  
  /***********************************************************************
-@@ -12977,6 +13454,7 @@ static struct image_type const image_types[] =
+@@ -12977,6 +13461,7 @@ static struct image_type const image_types[] =
  #endif
   { SYMBOL_INDEX (Qxbm), xbm_image_p, xbm_load, image_clear_image },
   { SYMBOL_INDEX (Qpbm), pbm_image_p, pbm_load, image_clear_image },
@@ -968,7 +975,7 @@ index 1086f474eec..97b780ed2cc 100644
  };
  
  #if HAVE_NATIVE_IMAGE_API
-@@ -13127,6 +13605,13 @@ non-numeric, there is no explicit limit on the size of images.  */);
+@@ -13127,6 +13612,13 @@ non-numeric, there is no explicit limit on the size of images.  */);
  	);
  #endif
  
