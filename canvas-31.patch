@@ -1,4 +1,4 @@
-From adb2102b200f4346e597d9bbad7e135fd6bf34e9 Mon Sep 17 00:00:00 2001
+From a8ba12604708900913cecd834cd049ed224c0c8e Mon Sep 17 00:00:00 2001
 From: Divya Ranjan <divya@subvertising.org>
 Date: Wed, 8 Jul 2026 07:20:39 +0000
 Subject: [PATCH] New image type canvas
@@ -378,7 +378,7 @@ index 142ca675734..5de8299f9ac 100644
  }
  
 diff --git a/src/image.c b/src/image.c
-index e76911c3cd3..6ff44fedb72 100644
+index e76911c3cd3..8adfcace2c5 100644
 --- a/src/image.c
 +++ b/src/image.c
 @@ -110,6 +110,21 @@ static unsigned long image_alloc_image_color (struct frame *, struct image *,
@@ -586,7 +586,7 @@ index e76911c3cd3..6ff44fedb72 100644
 +canvas_image_p (Lisp_Object object)
 +{
 +  struct image_keyword fmt[CANVAS_LAST];
-+  return canvas_parse (obj, fmt);
++  return canvas_parse (object, fmt);
 +}
 +
 +/* Clear canvas list. All canvases which are not referenced anymore in
