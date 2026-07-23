@@ -1,4 +1,4 @@
-From dbd7a221be4be95e0dc2a478a224e7f4ae96d940 Mon Sep 17 00:00:00 2001
+From 655de553b7f5c895c32540e1b2ad533cc6a8ad1d Mon Sep 17 00:00:00 2001
 From: Divya Ranjan <divya@subvertising.org>
 Date: Wed, 8 Jul 2026 07:20:39 +0000
 Subject: [PATCH] New image type canvas
@@ -66,21 +66,21 @@ back to a full frame redraw if the frame is garbaged.
 (mod-test-canvas/vector-reload, mod-test-canvas/unibyte)
 (mod-test-canvas/file, mod-test-canvas/gc-stress): New tests.
 ---
- doc/lispref/display.texi                   |  78 ++++
+ doc/lispref/display.texi                   |  78 +++
  doc/lispref/elisp.texi                     |   1 +
  doc/lispref/internals.texi                 |  47 ++
  etc/NEWS                                   |   8 +
  lisp/image.el                              |   3 +
  src/dispextern.h                           |  22 +-
  src/emacs-module.c                         |  10 +
- src/image.c                                | 518 ++++++++++++++++++++-
+ src/image.c                                | 531 ++++++++++++++++++++-
  src/module-env-31.h                        |   9 +
  src/nsimage.m                              |   7 +
  src/nsterm.h                               |   1 +
  src/xdisp.c                                |  68 +++
  test/src/emacs-module-resources/mod-test.c | 115 +++++
  test/src/emacs-module-tests.el             | 117 +++++
- 14 files changed, 984 insertions(+), 20 deletions(-)
+ 14 files changed, 997 insertions(+), 20 deletions(-)
 
 diff --git a/doc/lispref/display.texi b/doc/lispref/display.texi
 index e1b46d51489..77d61b0038e 100644
@@ -378,7 +378,7 @@ index 142ca675734..5de8299f9ac 100644
  }
  
 diff --git a/src/image.c b/src/image.c
-index e76911c3cd3..93def48e1e1 100644
+index e76911c3cd3..84d882a7d57 100644
 --- a/src/image.c
 +++ b/src/image.c
 @@ -110,6 +110,21 @@ static unsigned long image_alloc_image_color (struct frame *, struct image *,
@@ -512,7 +512,7 @@ index e76911c3cd3..93def48e1e1 100644
  	  /* Do image transformations and compute masks, unless we
  	     don't have the image yet.  */
  	  if (!EQ (builtin_lisp_symbol (img->type->type), Qpostscript))
-@@ -5410,7 +5447,456 @@ xbm_load (struct frame *f, struct image *img)
+@@ -5410,7 +5447,469 @@ xbm_load (struct frame *f, struct image *img)
  
    return success_p;
  }
@@ -629,7 +629,6 @@ index e76911c3cd3..93def48e1e1 100644
 +canvas_apply_data (struct canvas *c, struct image_keyword *fmt)
 +{
 +  ptrdiff_t expected_size = (ptrdiff_t) c->width * c->height;
-+  ptrdiff_t expected_bytes = (ptrdiff_t) 4 * expected_size;
 +
 +  Lisp_Object data = fmt[CANVAS_DATA].value;
 +  Lisp_Object file = fmt[CANVAS_FILE].value;
@@ -642,36 +641,40 @@ index e76911c3cd3..93def48e1e1 100644
 +	  return;
 +	}
 +
-+      if (SBYTES (data) != expected_bytes)
++      if (SBYTES (data) != 4 * expected_size)
 +	{
-+          image_error ("Canvas :data size mismatch: expected %d bytes",
-+		       make_fixnum (expected_bytes));
++          image_error ("Canvas :data size mismatch");
 +	  return;
 +	}
 +
-+      memcpy (c->data, SDATA (data), expected_bytes);
++      const uint32_t *buf = (const uint32_t *) SDATA (data);
++#ifdef WORDS_BIGENDIAN
++      for (ptrdiff_t i = 0; i < expected_size; ++i)
++	c->data[i] = bswap_32 (buf[i]);
++#else
++      for (ptrdiff_t i = 0; i < expected_size; ++i)
++	c->data[i] = buf[i];
++#endif
 +    }
 +  else if (VECTORP (data)) /* Vector of ARGB32 integers.  */
 +    {
 +      if (ASIZE (data) != expected_size)
 +	{
-+	  image_error ("Canvas: :data size mismatch: expected vector size %d",
-+		       make_fixnum (expected_size));
++	  image_error ("Canvas :data size mismatch");
 +	  return;
 +	}
 +
-+      for (int i = 0; i < ASIZE (data); i++)
++      for (ptrdiff_t i = 0; i < expected_size; ++i)
 +	{
 +          Lisp_Object pixel = AREF (data, i);
 +	  if (!FIXNUMP (pixel))
 +	    {
-+	      image_error ("Canvas: expected fixnum in the vector");
++	      image_error ("Expected fixnum in the canvas :data vector");
 +	      return;
 +	    }
-+	  c->data[i] = XFIXNUM (pixel);
++	  c->data[i] = (uint32_t) XFIXNUM (pixel);
 +	}
 +    }
-+
 +  else if (STRINGP (file)) /* Binary file with ARGB32 data.  */
 +    {
 +      Lisp_Object found = image_find_image_file (file);
@@ -690,7 +693,7 @@ index e76911c3cd3..93def48e1e1 100644
 +	}
 +
 +      ptrdiff_t nbytes;
-+      char *buf = slurp_file (fd, &nbytes);
++      uint32_t *buf = (uint32_t *) slurp_file (fd, &nbytes);
 +      emacs_close (fd);
 +      if (!buf)
 +	{
@@ -698,10 +701,20 @@ index e76911c3cd3..93def48e1e1 100644
 +	  return;
 +	}
 +
-+      if (nbytes == expected_bytes)
-+	memcpy (c->data, buf, expected_bytes);
-+      else
-+	image_error ("Canvas :file size mismatch for %s", file);
++      if (nbytes != 4 * expected_size)
++	{
++	  image_error ("Canvas :file size mismatch for %s", file);
++	  xfree (buf);
++	  return;
++	}
++
++#ifdef WORDS_BIGENDIAN
++      for (ptrdiff_t i = 0; i < expected_size; ++i)
++	c->data[i] = bswap_32 (buf[i]);
++#else
++      for (ptrdiff_t i = 0; i < expected_size; ++i)
++	c->data[i] = buf[i];
++#endif
 +
 +      xfree (buf);
 +    }
@@ -969,7 +982,7 @@ index e76911c3cd3..93def48e1e1 100644
  
  
  /***********************************************************************
-@@ -12981,6 +13467,7 @@ static struct image_type const image_types[] =
+@@ -12981,6 +13480,7 @@ static struct image_type const image_types[] =
  #endif
   { SYMBOL_INDEX (Qxbm), xbm_image_p, xbm_load, image_clear_image },
   { SYMBOL_INDEX (Qpbm), pbm_image_p, pbm_load, image_clear_image },
@@ -977,7 +990,7 @@ index e76911c3cd3..93def48e1e1 100644
  };
  
  #if HAVE_NATIVE_IMAGE_API
-@@ -13131,6 +13618,13 @@ non-numeric, there is no explicit limit on the size of images.  */);
+@@ -13131,6 +13631,13 @@ non-numeric, there is no explicit limit on the size of images.  */);
  	);
  #endif
  
