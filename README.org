@@ -10,5 +10,7 @@
 See also:
 
 - [[https://debbugs.gnu.org/cgi/bugreport.cgi?bug=80281][bug#80281]]
-- [[https://github.com/minad/emacs-shader-demo][emacs-shader-demo]]
 - [[https://github.com/minad/doom-on-emacs][doom-on-emacs]]
+- [[https://github.com/minad/emacs-canvas-patch][emacs-canvas-patch]]
+- [[https://github.com/minad/emacs-shader-demo][emacs-shader-demo]]
+- [[https://tusharhero.codeberg.page/emacs-pale-canvas-and-stuff-demos.html][Pale and other demos]]
