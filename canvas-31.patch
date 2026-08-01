@@ -1,4 +1,4 @@
-From e5162ac8f0ba5afee5f8201760ebaf32fe3610d0 Mon Sep 17 00:00:00 2001
+From 4b9eb7c3dfd1f3428b09a90cb0c6367022644981 Mon Sep 17 00:00:00 2001
 From: Divya Ranjan <divya@subvertising.org>
 Date: Wed, 8 Jul 2026 07:20:39 +0000
 Subject: [PATCH] New image type canvas
@@ -51,7 +51,7 @@ New functions implementing canvas creation, resizing, and reloading of
 RELOAD-DATA argument to reread `:data' or `:file'.
 (initialize_image_type, syms_of_image): Register the `canvas' image type
 and `canvas-refresh'.
-* src/module-env-32.h (canvas_data): New prototype.
+* src/module-env-31.h (canvas_data): New prototype.
 * src/nsimage.m (ns_image_reset): New function to recreate an NS pixmap
 to update the canvas.
 * src/nsterm.h: Add prototype for `ns_image_reset'.
@@ -77,13 +77,13 @@ back to a full frame redraw if the frame is garbaged.
  src/module-env-31.h                        |   9 +
  src/nsimage.m                              |   7 +
  src/nsterm.h                               |   1 +
- src/xdisp.c                                |  68 +++
+ src/xdisp.c                                |  71 +++
  test/src/emacs-module-resources/mod-test.c | 115 +++++
  test/src/emacs-module-tests.el             | 117 +++++
- 14 files changed, 1002 insertions(+), 20 deletions(-)
+ 14 files changed, 1005 insertions(+), 20 deletions(-)
 
 diff --git a/doc/lispref/display.texi b/doc/lispref/display.texi
-index e1b46d51489..77d61b0038e 100644
+index e1b46d51489..964cf93edd7 100644
 --- a/doc/lispref/display.texi
 +++ b/doc/lispref/display.texi
 @@ -6021,6 +6021,7 @@ displayed (@pxref{Display Feature Testing}).
@@ -149,7 +149,7 @@ index e1b46d51489..77d61b0038e 100644
 +
 +Other image properties like @code{:scale}, @code{:margin}, @code{:relief},
 +@code{:transform-smoothing} and @code{:map} are supported.
-+@xref{Image Descriptors} for further details on these properties.
++@xref{Image Descriptors}, for further details on these properties.
 +
 +In order to display the canvas, specify it as the display property of a
 +string or overlay:
@@ -174,7 +174,7 @@ index e1b46d51489..77d61b0038e 100644
 +@end lisp
 +
 +Canvas images can be manipulated and refreshed via dynamic modules.
-+@xref{Module Canvas API} for further details.
++@xref{Module Canvas API}, for further details.
  
  @node Image Cache
  @subsection Image Cache
@@ -191,7 +191,7 @@ index b7809ff66da..58c207e1488 100644
  
  Buttons
 diff --git a/doc/lispref/internals.texi b/doc/lispref/internals.texi
-index 0cb3e0ccb1d..bad497f3f03 100644
+index 0cb3e0ccb1d..202a5cad010 100644
 --- a/doc/lispref/internals.texi
 +++ b/doc/lispref/internals.texi
 @@ -1117,6 +1117,7 @@ option.  @xref{Initial Options,,,emacs, The GNU Emacs Manual}.
@@ -211,7 +211,7 @@ index 0cb3e0ccb1d..bad497f3f03 100644
 +
 +Emacs supports creating image objects called ``canvas'' which have a
 +pixel buffer associated with them.  These image objects can be accessed
-+and updated natively via dynamic modules.  @xref{Canvas Images} for what
++and updated natively via dynamic modules.  @xref{Canvas Images}, for what
 +they are.
 +
 +The following functions allow you to operate on canvas image objects
@@ -249,7 +249,7 @@ index 0cb3e0ccb1d..bad497f3f03 100644
 +
 +Thus, one can simply define a module function that takes as an argument
 +a canvas image object, following the specification as laid down in
-+@xref{Canvas Images} and then use the above code to manipulate the pixel
++@xref{Canvas Images}, and then use the above code to manipulate the pixel
 +buffer of the canvas and redraw it.
 +
  @node Module Nonlocal
@@ -1057,14 +1057,15 @@ index b21dd519e4b..69f565d51f9 100644
  extern int ns_display_pixel_height (struct ns_display_info *);
  extern int ns_display_pixel_width (struct ns_display_info *);
 diff --git a/src/xdisp.c b/src/xdisp.c
-index 5377d5e8ada..3fa8f646903 100644
+index 5377d5e8ada..f98436ba5e9 100644
 --- a/src/xdisp.c
 +++ b/src/xdisp.c
-@@ -32756,6 +32756,74 @@ append_stretch_glyph (struct it *it, Lisp_Object object,
+@@ -32756,6 +32756,77 @@ append_stretch_glyph (struct it *it, Lisp_Object object,
      IT_EXPAND_MATRIX_WIDTH (it, area);
  }
  
-+static void redraw_image_glyphs_window (struct window *w, Lisp_Object spec)
++static void
++redraw_image_glyphs_window (struct window *w, Lisp_Object spec)
 +{
 +  if (w->current_matrix == NULL)
 +    return;
@@ -1101,7 +1102,8 @@ index 5377d5e8ada..3fa8f646903 100644
 +    }
 +}
 +
-+static void redraw_image_glyphs_window_tree (struct window *w, Lisp_Object spec)
++static void
++redraw_image_glyphs_window_tree (struct window *w, Lisp_Object spec)
 +{
 +  while (w)
 +    {
@@ -1119,7 +1121,8 @@ index 5377d5e8ada..3fa8f646903 100644
 +      -> expose_frame -> expose_window_tree -> expose_window
 +      -> expose_line -> expose_area -> draw_glyphs */
 +
-+void redraw_image_glyphs (Lisp_Object spec)
++void
++redraw_image_glyphs (Lisp_Object spec)
 +{
 +  Lisp_Object tail, frame;
 +  FOR_EACH_FRAME (tail, frame)
