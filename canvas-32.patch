@@ -1,4 +1,4 @@
-From f15487b3398c5d60910adc0210faeda95b762d8c Mon Sep 17 00:00:00 2001
+From 748d77b4c4136f1b4a55a0d8d0ddcd03729b30e5 Mon Sep 17 00:00:00 2001
 From: Divya Ranjan <divya@subvertising.org>
 Date: Wed, 8 Jul 2026 07:20:39 +0000
 Subject: [PATCH] New image type canvas
@@ -66,24 +66,24 @@ back to a full frame redraw if the frame is garbaged.
 (mod-test-canvas/vector-reload, mod-test-canvas/unibyte)
 (mod-test-canvas/file, mod-test-canvas/gc-stress): New tests.
 ---
- doc/lispref/display.texi                   |  78 +++
+ doc/lispref/display.texi                   | 108 +++++
  doc/lispref/elisp.texi                     |   1 +
  doc/lispref/internals.texi                 |  47 ++
  etc/NEWS                                   |  11 +
  lisp/image.el                              |   3 +
  src/dispextern.h                           |  22 +-
  src/emacs-module.c                         |  10 +
- src/image.c                                | 536 ++++++++++++++++++++-
+ src/image.c                                | 525 ++++++++++++++++++++-
  src/module-env-32.h                        |   9 +
  src/nsimage.m                              |   7 +
  src/nsterm.h                               |   1 +
- src/xdisp.c                                |  71 +++
+ src/xdisp.c                                |  76 +++
  test/src/emacs-module-resources/mod-test.c | 115 +++++
  test/src/emacs-module-tests.el             | 117 +++++
- 14 files changed, 1008 insertions(+), 20 deletions(-)
+ 14 files changed, 1032 insertions(+), 20 deletions(-)
 
 diff --git a/doc/lispref/display.texi b/doc/lispref/display.texi
-index 0d0899e418c..29c1e2b5609 100644
+index 0d0899e418c..c916a3fc2af 100644
 --- a/doc/lispref/display.texi
 +++ b/doc/lispref/display.texi
 @@ -6024,6 +6024,7 @@ displayed (@pxref{Display Feature Testing}).
@@ -94,7 +94,7 @@ index 0d0899e418c..29c1e2b5609 100644
  * Image Cache::         Internal mechanisms of image display.
  @end menu
  
-@@ -7475,6 +7476,83 @@ This function returns the timer responsible for animating @var{image},
+@@ -7475,6 +7476,113 @@ This function returns the timer responsible for animating @var{image},
  if there is one.
  @end defun
  
@@ -102,12 +102,13 @@ index 0d0899e418c..29c1e2b5609 100644
 +@subsection Canvas Images
 +@cindex canvas image
 +
-+Canvas images can be updated and displayed efficiently with high frame rates,
-+for example by document viewers, visualization tools, dynamically computed
-+animations or games.  Canvas images have an associated writeable pixel
-+buffer in ARGB32 format on all platforms.  Unlike other image types supported
-+in Emacs, canvas images do not require creating a new Emacs Lisp object
-+every time they get updated.
++Canvas images can be updated and displayed efficiently with high frame
++rates, for example by document viewers, visualization tools, dynamically
++computed animations or games.  Canvas images have an associated
++writeable pixel buffer in ARGB32 format.  For portability the format is
++the same on all platforms.  Unlike other image types supported in Emacs,
++canvas images do not require creating a new Emacs Lisp object every time
++they get updated.
 +
 +An image specifier with @code{:type canvas} creates a canvas, for instance
 +as follows:
@@ -160,9 +161,13 @@ index 0d0899e418c..29c1e2b5609 100644
 +@end lisp
 +
 +Once a canvas image object has been created and displayed, it can be
-+``refreshed'' via @code{canvas-refresh}. If an optional non-@code{nil}
-+argument is passed to @code{canvas-refresh} then Emacs will reload the
-+@code{:data} or @code{:file} before redrawing the canvas.
++``refreshed'' via @code{canvas-refresh}.
++
++@defun canvas-refresh image &optional reload-data
++Refresh canvas @var{image} and update it on screen. If the optional
++argument @var{reload-data} is non-nil, reload the @code{:data} or
++@code{file} from the image specification before redrawing the canvas.
++@end defun
 +
 +The following code refreshes the canvas by reloading the data or file:
 +
@@ -172,6 +177,31 @@ index 0d0899e418c..29c1e2b5609 100644
 +;; Reload and refresh canvas images
 +(canvas-refresh my-vec-canvas 'reload-data)
 +@end lisp
++
++When refreshing the canvas in a loop, we must explicitly call @code{redisplay}:
++
++@example
++(setq canvas (create-image (make-vector (* 100 100) 0) 'canvas t
++			   :data-width 100 :data-height 100))
++(insert (propertize "#" 'display canvas))
++(dotimes (i (* 100 100))
++  (aset (plist-get (cdr canvas) :data) i #xFF)
++  (canvas-refresh canvas 'reload-data)
++  (redisplay))
++@end example
++
++But, if we are refreshing the canvas via a timer or a command, @code{redisplay}
++is implicitly called after the timer or command. The following example updates
++the above canvas in a timer ~30 times per second:
++
++@example
++(let ((i 0))
++  (run-at-time nil 0.033 (lambda ()
++			  (when (< i (* 100 100))
++			    (aset (plist-get (cdr canvas) :data) i #xFF)
++			    (incf i)
++			    (canvas-refresh canvas 'reload-data)))))
++@end example
 +
 +Canvas images can be manipulated and refreshed via dynamic modules.
 +@xref{Module Canvas API}, for further details.
@@ -191,7 +221,7 @@ index 2944b598178..45c110bb5a0 100644
  
  Buttons
 diff --git a/doc/lispref/internals.texi b/doc/lispref/internals.texi
-index 0cb3e0ccb1d..202a5cad010 100644
+index 0cb3e0ccb1d..8800e0b949c 100644
 --- a/doc/lispref/internals.texi
 +++ b/doc/lispref/internals.texi
 @@ -1117,6 +1117,7 @@ option.  @xref{Initial Options,,,emacs, The GNU Emacs Manual}.
@@ -225,9 +255,9 @@ index 0cb3e0ccb1d..202a5cad010 100644
 +of error.
 +@end deftypefn
 +
-+Note that the pixel buffer is only valid as the canvas object is alive
-+and its dimensions have not been changed. If it has changed, Emacs will
-+create a new pixel buffer and automatically resize the canvas.
++Note that the pixel buffer is only valid as long as the canvas object is
++alive and its dimensions have not been changed.  If it has changed, Emacs
++will create a new pixel buffer and automatically resize the canvas.
 +
 +Once we update the canvas pixel buffer via dynamic modules, we also have
 +to call @code{canvas-refresh} for Emacs to redisplay the canvas.  This
@@ -239,24 +269,24 @@ index 0cb3e0ccb1d..202a5cad010 100644
 +/* Write to the pixel buffer */
 +...
 +/* Redraw the canvas */
-+env->funcall(env, env->intern(env, "canvas-refresh"), 1, &canvas);
++env->funcall(env, env->intern(env, "canvas-refresh"), 2, (emacs_value[]){canvas, Qnil});
 +@end example
 +
 +Note that @code{canvas-refresh} has an optional boolean argument to
 +reload the @code{:data} vector or string from the canvas image
 +specification.  When called from dynamic modules, the argument should
-+usually be @code{nil}, thus not provided.
++usually be @code{nil}.
 +
 +Thus, one can simply define a module function that takes as an argument
 +a canvas image object, following the specification as laid down in
-+@xref{Canvas Images}, and then use the above code to manipulate the pixel
++@ref{Canvas Images}, and then use the above code to manipulate the pixel
 +buffer of the canvas and redraw it.
 +
  @node Module Nonlocal
  @subsection Nonlocal Exits in Modules
  @cindex nonlocal exits, in modules
 diff --git a/etc/NEWS b/etc/NEWS
-index 13810f81054..a20f967b478 100644
+index 13810f81054..dbbc39fe77e 100644
 --- a/etc/NEWS
 +++ b/etc/NEWS
 @@ -30,6 +30,8 @@ applies, and please also update docstrings as needed.
@@ -276,7 +306,7 @@ index 13810f81054..a20f967b478 100644
 +** Support for canvas image objects.
 +Canvas images support efficient updating and refreshing.  An image
 +specifier with ':type canvas' creates a canvas image.  The canvas has an
-+associated writable pixel buffer. The dynamic module function 'canvas_data'
++associated writable pixel buffer.  The dynamic module function 'canvas_data'
 +provides access to the pixel buffer.  After changing the ':data' vector or
 +writing to the pixel buffer a call to 'canvas-refresh' redraws the canvas
 +image.
@@ -299,7 +329,7 @@ index dbfbc266445..5f069292544 100644
  
  (defun image--default-smoothing (image)
 diff --git a/src/dispextern.h b/src/dispextern.h
-index 357504dd989..904746ae65e 100644
+index 357504dd989..1c4318002db 100644
 --- a/src/dispextern.h
 +++ b/src/dispextern.h
 @@ -3233,10 +3233,6 @@ struct image
@@ -354,24 +384,24 @@ index 357504dd989..904746ae65e 100644
  
  /* Defined in image.c */
  
-+extern uint32_t* canvas_data (Lisp_Object);
++extern uint32_t *canvas_data (Lisp_Object);
 +
  #ifdef HAVE_WINDOW_SYSTEM
  
  extern void clear_image_cache (struct frame *, Lisp_Object);
 diff --git a/src/emacs-module.c b/src/emacs-module.c
-index ce6c292dbb5..26980008d27 100644
+index ce6c292dbb5..1adf0ad6e5b 100644
 --- a/src/emacs-module.c
 +++ b/src/emacs-module.c
 @@ -962,6 +962,15 @@ module_vec_size (emacs_env *env, emacs_value vector)
    return ASIZE (lisp);
  }
  
-+static uint32_t*
++static uint32_t *
 +module_canvas_data (emacs_env *env, emacs_value canvas)
 +{
 +  MODULE_FUNCTION_BEGIN (NULL);
-+  uint32_t* data = canvas_data (value_to_lisp (canvas));
++  uint32_t *data = canvas_data (value_to_lisp (canvas));
 +  MODULE_INTERNAL_CLEANUP ();
 +  return data;
 +}
@@ -388,10 +418,10 @@ index ce6c292dbb5..26980008d27 100644
  }
  
 diff --git a/src/image.c b/src/image.c
-index 1086f474eec..701818fa87e 100644
+index 1086f474eec..5683e8ed229 100644
 --- a/src/image.c
 +++ b/src/image.c
-@@ -110,6 +110,21 @@ static unsigned long image_alloc_image_color (struct frame *, struct image *,
+@@ -110,6 +110,22 @@ static unsigned long image_alloc_image_color (struct frame *, struct image *,
  # define DONT_CREATE_TRANSFORMED_IMAGEMAGICK_IMAGE
  #endif
  
@@ -399,9 +429,10 @@ index 1086f474eec..701818fa87e 100644
 +{
 +  /* Linked list of canvases, see `canvas_list'.  */
 +  struct canvas *next;
-+  /* Pixel memory buffer in ARGB32 format across all platforms.  */
++  /* Memory buffer in ARGB32 format.  The same format on all platforms!  */
 +  uint32_t *data;
-+  /* Incremented if the canvas should be redrawn. Always larger than 0.  */
++  /* Incremented if the canvas should be redrawn.  The value is always
++     greater than 0.  */
 +  uint32_t refresh;
 +  /* Dimension of the canvas.  */
 +  int width, height;
@@ -413,7 +444,7 @@ index 1086f474eec..701818fa87e 100644
  #ifdef HAVE_NTGUI
  
  /* We need (or want) w32.h only when we're _not_ compiling for Cygwin.  */
-@@ -221,6 +236,7 @@ static unsigned long *colors_in_color_table (int *n);
+@@ -221,6 +237,7 @@ static unsigned long *colors_in_color_table (int *n);
  
  #ifdef HAVE_NTGUI
  static HBITMAP w32_create_pixmap_from_bitmap_data (int, int, char *);
@@ -421,13 +452,13 @@ index 1086f474eec..701818fa87e 100644
  
  #endif
  
-@@ -1877,6 +1893,13 @@ prepare_image_for_display (struct frame *f, struct image *img)
+@@ -1877,6 +1894,13 @@ prepare_image_for_display (struct frame *f, struct image *img)
        unblock_input ();
      }
  #endif
 +
 +  /* Update image pixmap from canvas pixel buffer if refresh counter has
-+     been updated.  For canvases the refresh counter is always >= 1. */
++     been updated.  For canvases the refresh counter is always >= 1.  */
 +  if (img->refresh
 +      && EQ (image_spec_value (img->spec, QCtype, NULL), Qcanvas)
 +      && img->refresh != ((struct canvas *) XFIXNUMPTR (img->lisp_data))->refresh)
@@ -435,7 +466,7 @@ index 1086f474eec..701818fa87e 100644
  }
  
  
-@@ -2260,6 +2283,8 @@ filter_image_spec (Lisp_Object spec)
+@@ -2260,6 +2284,8 @@ filter_image_spec (Lisp_Object spec)
  {
    Lisp_Object out = Qnil;
  
@@ -444,7 +475,7 @@ index 1086f474eec..701818fa87e 100644
    /* Skip past the `image' element.  */
    if (CONSP (spec))
      spec = XCDR (spec);
-@@ -2274,10 +2299,14 @@ filter_image_spec (Lisp_Object spec)
+@@ -2274,10 +2300,14 @@ filter_image_spec (Lisp_Object spec)
  	  spec = XCDR (spec);
  
  	  /* Some animation-related data doesn't affect display, but
@@ -454,7 +485,7 @@ index 1086f474eec..701818fa87e 100644
 -		|| EQ (key, QCanimate_position)))
 +	     breaks the image cache.  Furthermore for canvases do not
 +	     check the data for equality, such that data can be changed
-+	     via mutation to refresh the canvas. Filter these keys out.
++	     via mutation to refresh the canvas.  Filter these keys out.
 +	  */
 +	  if (!(is_canvas ? EQ (key, QCdata) :
 +		(EQ (key, QCanimate_buffer)
@@ -463,7 +494,7 @@ index 1086f474eec..701818fa87e 100644
  	    {
  	      out = Fcons (value, out);
  	      out = Fcons (key, out);
-@@ -2468,6 +2497,8 @@ but the image is still displayed.  */)
+@@ -2468,6 +2498,8 @@ but the image is still displayed.  */)
    /* Also clear the animation caches.  */
    image_prune_animation_caches (true);
  
@@ -472,7 +503,7 @@ index 1086f474eec..701818fa87e 100644
    return Qnil;
  }
  
-@@ -3033,8 +3064,6 @@ image_set_transform (struct frame *f, struct image *img)
+@@ -3033,8 +3065,6 @@ image_set_transform (struct frame *f, struct image *img)
      { 0, 0, 1 },
    };
  
@@ -481,7 +512,7 @@ index 1086f474eec..701818fa87e 100644
    img->use_bilinear_filtering = false;
  
    memcpy (&img->transform, identity, sizeof identity);
-@@ -3058,10 +3087,6 @@ image_set_transform (struct frame *f, struct image *img)
+@@ -3058,10 +3088,6 @@ image_set_transform (struct frame *f, struct image *img)
  # if !defined USE_CAIRO && defined HAVE_XRENDER
    if (!img->picture)
      return;
@@ -492,7 +523,7 @@ index 1086f474eec..701818fa87e 100644
  # endif
  
    /* Determine size.  */
-@@ -3364,8 +3389,16 @@ image_set_transform (struct frame *f, struct image *img)
+@@ -3364,8 +3390,16 @@ image_set_transform (struct frame *f, struct image *img)
  			      matrix[1][1], matrix[2][0], matrix[2][1]};
    cairo_pattern_t *pattern = cairo_pattern_create_rgb (0, 0, 0);
    cairo_pattern_set_matrix (pattern, &cr_matrix);
@@ -511,7 +542,7 @@ index 1086f474eec..701818fa87e 100644
    /* Dummy solid color pattern just to record pattern matrix.  */
    img->cr_data = pattern;
  # elif defined (HAVE_XRENDER)
-@@ -3624,6 +3657,10 @@ lookup_image (struct frame *f, Lisp_Object spec, int face_id)
+@@ -3624,6 +3658,10 @@ lookup_image (struct frame *f, Lisp_Object spec, int face_id)
  		}
  	    }
  
@@ -522,7 +553,7 @@ index 1086f474eec..701818fa87e 100644
  	  /* Do image transformations and compute masks, unless we
  	     don't have the image yet.  */
  	  if (!EQ (builtin_lisp_symbol (img->type->type), Qpostscript))
-@@ -5410,7 +5447,474 @@ xbm_load (struct frame *f, struct image *img)
+@@ -5410,7 +5448,462 @@ xbm_load (struct frame *f, struct image *img)
  
    return success_p;
  }
@@ -563,11 +594,17 @@ index 1086f474eec..701818fa87e 100644
 +  {":relief",		IMAGE_INTEGER_VALUE,			0},
 +};
 +
-+/* Weak hash map associating the image spec with the canvas object.  */
++/* Weak hash map associating canvas image specs with the canvas objects.
++
++   As long as a canvas image spec object is alive, the canvas object
++   backing it, will stay alive.  As soon as the GC runs and frees
++   unreferenced canvas image specs, the specs are are also removed from
++   the weak canvas_map.  Then canvas_free_unused will check the
++   canvas_map and free the backing canvas objects.   */
 +
 +static Lisp_Object canvas_map;
 +
-+/* Linked list of all canvases.  */
++/* Linked list of all canvas objects.  */
 +
 +static struct canvas* canvas_list = 0;
 +
@@ -578,7 +615,7 @@ index 1086f474eec..701818fa87e 100644
 +{
 +  memcpy (fmt, canvas_format, sizeof canvas_format);
 +
-+  /* Check that only one of :data or :file is present. */
++  /* Check that only one of :data or :file is present.  */
 +  if (!parse_image_spec (object, fmt, CANVAS_LAST, Qcanvas)
 +      || fmt[CANVAS_FILE].count + fmt[CANVAS_DATA].count > 1)
 +    return false;
@@ -599,7 +636,7 @@ index 1086f474eec..701818fa87e 100644
 +  return canvas_parse (object, fmt);
 +}
 +
-+/* Clear canvas list. All canvases which are not referenced anymore in
++/* Clear canvas list.  All canvases which are not referenced anymore in
 +   the weak hash table canvas_map are freed.  */
 +
 +static void
@@ -632,8 +669,8 @@ index 1086f474eec..701818fa87e 100644
 +
 +   :data must be an unibyte string of exactly 4*WIDTH*HEIGHT bytes, or a
 +   vector of size WIDTH*HEIGHT in row-major order, where each element is
-+   a 32 bit integer. :file names a binary file with size 4*WIDTH*HEIGHT
-+   bytes. */
++   a 32 bit integer.  :file names a binary file with size 4*WIDTH*HEIGHT
++   bytes.  */
 +
 +static void
 +canvas_apply_data (struct canvas *c, struct image_keyword *fmt)
@@ -730,7 +767,7 @@ index 1086f474eec..701818fa87e 100644
 +    }
 +}
 +
-+/* Get canvas object for IMAGE specification. Return NULL on error.  */
++/* Get canvas object for IMAGE specification.  Returns NULL on error.  */
 +
 +static struct canvas*
 +canvas_get (Lisp_Object image, struct image_keyword *fmt)
@@ -749,32 +786,32 @@ index 1086f474eec..701818fa87e 100644
 +  if (!c)
 +    {
 +      /* Free old canvases now, when allocating a new one, to keep
-+         memory usage low. */
++         memory usage low.  */
 +      canvas_free_unused ();
 +
 +      c = xzalloc (sizeof (struct canvas));
-+      c->refresh = 2; /* 2 in order to enforce first refresh */
++      c->refresh = 2; /* 2 in order to enforce first refresh.  */
 +      c->width = width;
 +      c->height = height;
 +      c->data = xzalloc (4 * width * height);
 +
-+      /* Register the canvas in the list and the map. */
++      /* Register the canvas in the list and the map.  */
 +      c->next = canvas_list;
 +      canvas_list = c;
 +      Fputhash (image, make_pointer_integer (c), canvas_map);
 +
-+      /* Initialize pixel buffer from :data or :file if supplied. */
++      /* Initialize pixel buffer from :data or :file if supplied.  */
 +      canvas_apply_data (c, fmt);
 +    }
 +  else if (c->width != width || c->height != height)
 +    {
-+      /* Resize canvas. */
++      /* Resize canvas.  */
 +      c->width = width;
 +      c->height = height;
 +      c->data = xrealloc (c->data, 4 * width * height);
 +      memset (c->data, 0, 4 * width * height);
 +
-+      /* Initialize pixel buffer from :data or :file if supplied. */
++      /* Initialize pixel buffer from :data or :file if supplied.  */
 +      canvas_apply_data (c, fmt);
 +    }
 +
@@ -815,7 +852,7 @@ index 1086f474eec..701818fa87e 100644
 +{
 +  struct canvas *c = XFIXNUMPTR (img->lisp_data);
 +  img->refresh = c->refresh;
-+  uint32_t* src = c->data;
++  uint32_t *src = c->data;
 +  int width = c->width, height = c->height;
 +
 +  /* If canvas has been resized in the meantime and the image is stale,
@@ -830,7 +867,7 @@ index 1086f474eec..701818fa87e 100644
 +  block_input ();
 +
 +#ifdef USE_CAIRO
-+  /* Cairo: Optimized canvas reloading. Reuse the existing Cairo surface.  */
++  /* Cairo: Optimized canvas reloading.  Reuse the existing Cairo surface.  */
 +  cairo_surface_t* surface;
 +  if (img->cr_data
 +      /* prepare_image_for_display ensures that cr_data is a surface pattern */
@@ -840,7 +877,7 @@ index 1086f474eec..701818fa87e 100644
 +      cairo_surface_flush (surface);
 +      int stride = cairo_image_surface_get_stride (surface);
 +      unsigned char *dst = cairo_image_surface_get_data (surface);
-+      /* Alpha channel is preserved here. Potentially preserve it when
++      /* Alpha channel is preserved here.  Potentially preserve it when
 +	 drawing the image in x_draw_image_glyph_string?  */
 +      if (stride == 4 * width) /* Fast path */
 +	{
@@ -854,7 +891,7 @@ index 1086f474eec..701818fa87e 100644
 +      cairo_surface_mark_dirty (surface);
 +    }
 +#elif defined HAVE_X_WINDOWS
-+  /* X11: Optimized canvas reloading. Reuse the existing pixmap.  */
++  /* X11: Optimized canvas reloading.  Reuse the existing pixmap.  */
 +  int depth = FRAME_DISPLAY_INFO (f)->n_planes;
 +  XImage *ximg = XCreateImage (FRAME_X_DISPLAY (f), FRAME_X_VISUAL (f),
 +			       depth, ZPixmap, 0, NULL, width, height,
@@ -877,7 +914,7 @@ index 1086f474eec..701818fa87e 100644
 +      x_destroy_x_image (ximg);
 +    }
 +#elif defined HAVE_ANDROID
-+  /* Android: Optimized canvas reloading. Reuse the existing pixmap.  */
++  /* Android: Optimized canvas reloading.  Reuse the existing pixmap.  */
 +  struct android_image *ximg = android_create_image (FRAME_DISPLAY_INFO (f)->n_planes,
 +						     ANDROID_Z_PIXMAP, NULL, width, height);
 +  if (ximg)
@@ -890,13 +927,15 @@ index 1086f474eec..701818fa87e 100644
 +      image_destroy_x_image (ximg);
 +    }
 +#elif defined HAVE_NS
-+  /* MacOS: Recreates and fills the pixmap */
++  /* NS: Recreates and fills the pixmap.  This is a workaround, ideally
++     we'd like to recache the NSImage instead.  */
 +  img->pixmap = ns_image_reset(img->pixmap, width, height);
 +  for (int y = 0; y < height; ++y)
 +    for (int x = 0; x < width; ++x)
 +      PUT_PIXEL (img->pixmap, x, y, src[y * width + x]);
 +#else
-+  /* Platform independent canvas reloading.  Less efficient, since it recreates images and pixmaps. */
++  /* Platform independent canvas reloading.  Less efficient, since it
++     recreates images and pixmaps.  */
 +  FRAME_TERMINAL (f)->free_pixmap (f, img->pixmap);
 +  img->pixmap = NO_PIXMAP;
 +  Emacs_Pix_Container ximg;
@@ -921,7 +960,7 @@ index 1086f474eec..701818fa87e 100644
 +/* Access canvas buffer.  Note that the pixel buffer
 + is valid only as long as its dimensions have not been changed.*/
 +
-+uint32_t*
++uint32_t *
 +canvas_data (Lisp_Object image)
 +{
 +  struct image_keyword fmt[CANVAS_LAST];
@@ -936,34 +975,14 @@ index 1086f474eec..701818fa87e 100644
 +DEFUN ("canvas-refresh", Fcanvas_refresh, Scanvas_refresh, 1, 2, 0,
 +       doc: /* Refresh canvas IMAGE and update it on screen.
 +
-+If RELOAD-DATA is non-nil, reload the :data from the image
-+specification.
-+
-+`redisplay' must be called after `canvas-refresh' such that the updated
-+canvas is displayed even if double buffering is enabled.  It can be
-+updated in a loop.
-+
-+Example:
-+
-+  (setq canvas (create-image (make-vector (* 100 100) 0) 'canvas t
-+                             :data-width 100 :data-height 100))
-+  (insert (propertize "#" 'display canvas))
-+  (dotimes (i (* 100 100))
-+    (aset (plist-get (cdr canvas) :data) i #xFF)
-+    (canvas-refresh canvas 'reload-data)
-+    (redisplay))
++If RELOAD-DATA is non-nil, reload the :data or :file from the image
++specification before redrawing the canvas.
 +
 +When `canvas-refresh' is called from a timer or a command, `redisplay'
-+will be called implicitly after the timer or command.
-+
-+Example:
-+
-+  (let ((i 0))
-+    (run-at-time nil 0.03 (lambda ()
-+      (when (< i (* 100 100))
-+        (aset (plist-get (cdr canvas) :data) i #xFF)
-+        (incf i)
-+        (canvas-refresh canvas 'reload-data)))))  */)
++will be called implicitly after the timer or command.  `redisplay' must
++be called explicitly after `canvas-refresh' only when the redraw should
++happen from a loop.  See Info node `(elisp) Canvas Images' for
++examples.  */)
 +  (Lisp_Object image, Lisp_Object reload_data)
 +{
 +  struct image_keyword fmt[CANVAS_LAST];
@@ -985,7 +1004,7 @@ index 1086f474eec..701818fa87e 100644
 +  /* Redraw all image glyphs.  */
 +  block_input ();
 +  redraw_image_glyphs (image);
-+  /* We do not call `redisplay' or `flush_frame' here. This means the
++  /* We do not call `redisplay' or `flush_frame' here.  This means the
 +     canvas images are not updated immediately on screen, since the
 +     double buffer won't be flipped immediately.  The next call to
 +     `redisplay' will flip the double buffer.  */
@@ -997,7 +1016,7 @@ index 1086f474eec..701818fa87e 100644
  
  
  /***********************************************************************
-@@ -12977,6 +13481,7 @@ static struct image_type const image_types[] =
+@@ -12977,6 +13470,7 @@ static struct image_type const image_types[] =
  #endif
   { SYMBOL_INDEX (Qxbm), xbm_image_p, xbm_load, image_clear_image },
   { SYMBOL_INDEX (Qpbm), pbm_image_p, pbm_load, image_clear_image },
@@ -1005,7 +1024,7 @@ index 1086f474eec..701818fa87e 100644
  };
  
  #if HAVE_NATIVE_IMAGE_API
-@@ -13127,6 +13632,13 @@ non-numeric, there is no explicit limit on the size of images.  */);
+@@ -13127,6 +13621,13 @@ non-numeric, there is no explicit limit on the size of images.  */);
  	);
  #endif
  
@@ -1020,7 +1039,7 @@ index 1086f474eec..701818fa87e 100644
    add_image_type (Qpbm);
  
 diff --git a/src/module-env-32.h b/src/module-env-32.h
-index 8051066bf88..3ab37f9001b 100644
+index 8051066bf88..d078a7b7315 100644
 --- a/src/module-env-32.h
 +++ b/src/module-env-32.h
 @@ -1,3 +1,12 @@
@@ -1034,7 +1053,7 @@ index 8051066bf88..3ab37f9001b 100644
 +     CANVAS is alive, and as long as its dimensions have not been
 +     changed.  Return NULL in case of error.   */
 +
-+  uint32_t* (*canvas_data) (emacs_env *env, emacs_value canvas)
++  uint32_t *(*canvas_data) (emacs_env *env, emacs_value canvas)
 +    EMACS_ATTRIBUTE_NONNULL(1);
 diff --git a/src/nsimage.m b/src/nsimage.m
 index 426ce20eb05..f396d424ffe 100644
@@ -1067,10 +1086,10 @@ index b21dd519e4b..69f565d51f9 100644
  extern int ns_display_pixel_height (struct ns_display_info *);
  extern int ns_display_pixel_width (struct ns_display_info *);
 diff --git a/src/xdisp.c b/src/xdisp.c
-index caea8e77a9d..908575fe552 100644
+index caea8e77a9d..ce8504db4cb 100644
 --- a/src/xdisp.c
 +++ b/src/xdisp.c
-@@ -32824,6 +32824,77 @@ append_stretch_glyph (struct it *it, Lisp_Object object,
+@@ -32824,6 +32824,82 @@ append_stretch_glyph (struct it *it, Lisp_Object object,
      IT_EXPAND_MATRIX_WIDTH (it, area);
  }
  
@@ -1088,25 +1107,30 @@ index caea8e77a9d..908575fe552 100644
 +      return;
 +    }
 +
-+  for (int y = 0; y < w->current_matrix->nrows; ++y)
++  for (int area = LEFT_MARGIN_AREA; area < LAST_AREA; ++area)
 +    {
-+      struct glyph_row *row = w->current_matrix->rows + y;
-+      if (row->enabled_p)
++      for (int y = 0; y < w->current_matrix->nrows; ++y)
 +	{
-+	  int start = row->x;
-+	  for (int x = 0; x < row->used[TEXT_AREA]; ++x)
++	  struct glyph_row *row = w->current_matrix->rows + y;
++	  if (row->enabled_p)
 +	    {
-+	      struct glyph *glyph = row->glyphs[TEXT_AREA] + x;
-+	      if (glyph->type == IMAGE_GLYPH)
++	      int pos_x = 0;
++	      for (int x = 0; x < row->used[area]; ++x)
 +		{
-+		  struct image* img = IMAGE_OPT_FROM_ID (f, glyph->u.img_id);
-+		  if (img && EQ (img->spec, spec))
++		  struct glyph *glyph = row->glyphs[area] + x;
++		  if (glyph->type == IMAGE_GLYPH)
 +		    {
-+		      prepare_image_for_display (f, img);
-+		      draw_glyphs (w, start, row, TEXT_AREA, x, x + 1, DRAW_NORMAL_TEXT, 0);
++		      struct image* img =
++			IMAGE_OPT_FROM_ID (f, glyph->u.img_id);
++		      if (img && EQ (img->spec, spec))
++			{
++			  prepare_image_for_display (f, img);
++			  draw_glyphs (w, pos_x, row, area, x, x + 1,
++				       DRAW_NORMAL_TEXT, 0);
++			}
 +		    }
++		  pos_x += glyph->pixel_width;
 +		}
-+	      start += glyph->pixel_width;
 +	    }
 +	}
 +    }
@@ -1138,7 +1162,7 @@ index caea8e77a9d..908575fe552 100644
 +  FOR_EACH_FRAME (tail, frame)
 +    {
 +      /* When the frame is garbaged, wait for full redisplay.  Only use
-+         the fast path when the frame is in a consistent state. */
++         the fast path when the frame is in a consistent state.  */
 +      struct frame* f = XFRAME (frame);
 +      if (!FRAME_GARBAGED_P (f))
 +        redraw_image_glyphs_window_tree (XWINDOW (f->root_window), spec);
@@ -1149,7 +1173,7 @@ index caea8e77a9d..908575fe552 100644
  
  /* Produce a stretch glyph for iterator IT.  IT->object is the value
 diff --git a/test/src/emacs-module-resources/mod-test.c b/test/src/emacs-module-resources/mod-test.c
-index 3dabca1aa43..68e05eceed7 100644
+index 3dabca1aa43..a06bb752e85 100644
 --- a/test/src/emacs-module-resources/mod-test.c
 +++ b/test/src/emacs-module-resources/mod-test.c
 @@ -752,6 +752,118 @@ Fmod_test_make_string (emacs_env *env, ptrdiff_t nargs,
@@ -1174,7 +1198,7 @@ index 3dabca1aa43..68e05eceed7 100644
 +		  emacs_value *args, void *data)
 +{
 +  assert (nargs == 3);
-+  uint32_t* buf = env->canvas_data (env, args[0]);
++  uint32_t *buf = env->canvas_data (env, args[0]);
 +
 +  if (!buf)
 +    {
@@ -1185,7 +1209,7 @@ index 3dabca1aa43..68e05eceed7 100644
 +  int width  = (int) env->extract_integer (env, args[1]);
 +  int height = (int) env->extract_integer (env, args[2]);
 +
-+  /* Validate dimensions against the canvas image spec. */
++  /* Validate dimensions against the canvas image spec.  */
 +  emacs_value Qimage_property = env->intern (env, "image-property");
 +  emacs_value Qdata_width     = env->intern (env, ":data-width");
 +  emacs_value Qdata_height    = env->intern (env, ":data-height");
@@ -1212,7 +1236,7 @@ index 3dabca1aa43..68e05eceed7 100644
 +		  emacs_value *args, void *data)
 +{
 +  assert (nargs == 3);
-+  uint32_t* buf = env->canvas_data (env, args[0]);
++  uint32_t *buf = env->canvas_data (env, args[0]);
 +
 +  if (!buf)
 +    {
@@ -1223,7 +1247,7 @@ index 3dabca1aa43..68e05eceed7 100644
 +  int width  = (int) env->extract_integer (env, args[1]);
 +  int height = (int) env->extract_integer (env, args[2]);
 +
-+  /* Validate dimensions against the canvas image spec. */
++  /* Validate dimensions against the canvas image spec.  */
 +  emacs_value Qimage_property = env->intern (env, "image-property");
 +  emacs_value Qdata_width     = env->intern (env, ":data-width");
 +  emacs_value Qdata_height    = env->intern (env, ":data-height");
@@ -1257,7 +1281,7 @@ index 3dabca1aa43..68e05eceed7 100644
 +  uint32_t *buf = env->canvas_data (env, args[0]);
 +
 +   if (env->non_local_exit_check (env) != emacs_funcall_exit_return)
-+     env->non_local_exit_clear (env); // don't propagate the error to ERT
++     env->non_local_exit_clear (env); /* Don't propagate the error to ERT */
 +
 +  if (buf)
 +    {
@@ -1282,7 +1306,7 @@ index 3dabca1aa43..68e05eceed7 100644
  #undef DEFUN
  
 diff --git a/test/src/emacs-module-tests.el b/test/src/emacs-module-tests.el
-index e678fba3873..c10029b5fd2 100644
+index e678fba3873..5ee775d12f8 100644
 --- a/test/src/emacs-module-tests.el
 +++ b/test/src/emacs-module-tests.el
 @@ -588,4 +588,121 @@ See Bug#36226."
@@ -1296,7 +1320,7 @@ index e678fba3873..c10029b5fd2 100644
 +                                (logand (ash pixel -8) #xff)
 +                                (logand (ash pixel -16) #xff)
 +                                (logand (ash pixel -24) #xff)))
-+         (coding-system-for-write 'binary))
++         (coding-system-for-write 'no-conversion))
 +    (with-temp-file "data/image/canvas-argb"
 +      (set-buffer-multibyte nil)
 +      (dotimes (_ (* width height))
