@@ -1,4 +1,4 @@
-From ed1ea53807f143f1096f3c6644a43a0d7a1b132a Mon Sep 17 00:00:00 2001
+From 88bd3276ad4860d3a78baf0a601414cfcc34608f Mon Sep 17 00:00:00 2001
 From: Divya Ranjan <divya@subvertising.org>
 Date: Wed, 8 Jul 2026 07:20:39 +0000
 Subject: [PATCH] New image type canvas
@@ -69,9 +69,9 @@ back to a full frame redraw if the frame is garbaged.
  doc/lispref/display.texi                   | 108 +++++
  doc/lispref/elisp.texi                     |   1 +
  doc/lispref/internals.texi                 |  48 ++
- etc/NEWS                                   |  11 +
+ etc/NEWS                                   |   9 +
  lisp/image.el                              |   3 +
- src/dispextern.h                           |  22 +-
+ src/dispextern.h                           |  24 +-
  src/emacs-module.c                         |  10 +
  src/image.c                                | 525 ++++++++++++++++++++-
  src/module-env-32.h                        |   9 +
@@ -80,10 +80,10 @@ back to a full frame redraw if the frame is garbaged.
  src/xdisp.c                                |  76 +++
  test/src/emacs-module-resources/mod-test.c | 115 +++++
  test/src/emacs-module-tests.el             | 117 +++++
- 14 files changed, 1033 insertions(+), 20 deletions(-)
+ 14 files changed, 1032 insertions(+), 21 deletions(-)
 
 diff --git a/doc/lispref/display.texi b/doc/lispref/display.texi
-index 0d0899e418c..c916a3fc2af 100644
+index 5704103ced9..9f3fa3d1bcd 100644
 --- a/doc/lispref/display.texi
 +++ b/doc/lispref/display.texi
 @@ -6024,6 +6024,7 @@ displayed (@pxref{Display Feature Testing}).
@@ -164,7 +164,7 @@ index 0d0899e418c..c916a3fc2af 100644
 +``refreshed'' via @code{canvas-refresh}.
 +
 +@defun canvas-refresh image &optional reload-data
-+Refresh canvas @var{image} and update it on screen. If the optional
++Refresh canvas @var{image} and update it on screen.  If the optional
 +argument @var{reload-data} is non-nil, reload the @code{:data} or
 +@code{file} from the image specification before redrawing the canvas.
 +@end defun
@@ -191,7 +191,7 @@ index 0d0899e418c..c916a3fc2af 100644
 +@end example
 +
 +But, if we are refreshing the canvas via a timer or a command, @code{redisplay}
-+is implicitly called after the timer or command. The following example updates
++is implicitly called after the timer or command.  The following example updates
 +the above canvas in a timer ~30 times per second:
 +
 +@example
@@ -287,19 +287,10 @@ index 0cb3e0ccb1d..ef98afa36df 100644
  @subsection Nonlocal Exits in Modules
  @cindex nonlocal exits, in modules
 diff --git a/etc/NEWS b/etc/NEWS
-index 13810f81054..dbbc39fe77e 100644
+index 9ddf8d41028..247bdf06eb1 100644
 --- a/etc/NEWS
 +++ b/etc/NEWS
-@@ -30,6 +30,8 @@ applies, and please also update docstrings as needed.
- 
- * Changes in Emacs 32.1
- 
-++++
-+
- ---
- ** Emacs no longer kills child processes after EPIPE.
- Previously, Emacs would immediately kill a child process and set its
-@@ -250,6 +252,15 @@ older '(HIGH LOW USEC PSEC)' form.
+@@ -283,6 +283,15 @@ older '(HIGH LOW USEC PSEC)' form.
  
  * Lisp Changes in Emacs 32.1
  
@@ -330,7 +321,7 @@ index dbfbc266445..5f069292544 100644
  
  (defun image--default-smoothing (image)
 diff --git a/src/dispextern.h b/src/dispextern.h
-index 357504dd989..1c4318002db 100644
+index 357504dd989..b13ef8331dd 100644
 --- a/src/dispextern.h
 +++ b/src/dispextern.h
 @@ -3233,10 +3233,6 @@ struct image
@@ -354,8 +345,12 @@ index 357504dd989..1c4318002db 100644
    /* Whether or not bilinear filtering should be used to "smooth" the
       image.  */
    bool use_bilinear_filtering;
-@@ -3296,7 +3289,17 @@ struct image
-      valid, respectively. */
+@@ -3293,10 +3286,20 @@ struct image
+   bool_bf background_transparent : 1;
+ 
+   /* True if the `background' and `background_transparent' fields are
+-     valid, respectively. */
++     valid, respectively.  */
    bool_bf background_valid : 1, background_transparent_valid : 1;
  
 -  /* Width and height of the image.  */
@@ -419,7 +414,7 @@ index ce6c292dbb5..1adf0ad6e5b 100644
  }
  
 diff --git a/src/image.c b/src/image.c
-index 1086f474eec..5683e8ed229 100644
+index 1086f474eec..4aa339609c1 100644
 --- a/src/image.c
 +++ b/src/image.c
 @@ -110,6 +110,22 @@ static unsigned long image_alloc_image_color (struct frame *, struct image *,
@@ -601,7 +596,7 @@ index 1086f474eec..5683e8ed229 100644
 +   backing it, will stay alive.  As soon as the GC runs and frees
 +   unreferenced canvas image specs, the specs are are also removed from
 +   the weak canvas_map.  Then canvas_free_unused will check the
-+   canvas_map and free the backing canvas objects.   */
++   canvas_map and free the backing canvas objects.  */
 +
 +static Lisp_Object canvas_map;
 +
@@ -1040,7 +1035,7 @@ index 1086f474eec..5683e8ed229 100644
    add_image_type (Qpbm);
  
 diff --git a/src/module-env-32.h b/src/module-env-32.h
-index 8051066bf88..d078a7b7315 100644
+index 8051066bf88..444ee9e206d 100644
 --- a/src/module-env-32.h
 +++ b/src/module-env-32.h
 @@ -1,3 +1,12 @@
@@ -1052,7 +1047,7 @@ index 8051066bf88..d078a7b7315 100644
 +     major order and has the size width * height.  The pixel format is
 +     ARGB32 on all platforms.  The pointer will be valid as long as
 +     CANVAS is alive, and as long as its dimensions have not been
-+     changed.  Return NULL in case of error.   */
++     changed.  Return NULL in case of error.  */
 +
 +  uint32_t *(*canvas_data) (emacs_env *env, emacs_value canvas)
 +    EMACS_ATTRIBUTE_NONNULL(1);
@@ -1087,7 +1082,7 @@ index b21dd519e4b..69f565d51f9 100644
  extern int ns_display_pixel_height (struct ns_display_info *);
  extern int ns_display_pixel_width (struct ns_display_info *);
 diff --git a/src/xdisp.c b/src/xdisp.c
-index caea8e77a9d..227f3a36c7a 100644
+index f01ed8cb053..408b55bbb65 100644
 --- a/src/xdisp.c
 +++ b/src/xdisp.c
 @@ -32824,6 +32824,82 @@ append_stretch_glyph (struct it *it, Lisp_Object object,
@@ -1174,7 +1169,7 @@ index caea8e77a9d..227f3a36c7a 100644
  
  /* Produce a stretch glyph for iterator IT.  IT->object is the value
 diff --git a/test/src/emacs-module-resources/mod-test.c b/test/src/emacs-module-resources/mod-test.c
-index 3dabca1aa43..a06bb752e85 100644
+index 3dabca1aa43..622bdd79014 100644
 --- a/test/src/emacs-module-resources/mod-test.c
 +++ b/test/src/emacs-module-resources/mod-test.c
 @@ -752,6 +752,118 @@ Fmod_test_make_string (emacs_env *env, ptrdiff_t nargs,
@@ -1266,7 +1261,7 @@ index 3dabca1aa43..a06bb752e85 100644
 +    }
 +
 +  for (int i = 0; i < width * height; i++)
-+    buf[i] = ~buf[i]; // invert the pixels
++    buf[i] = ~buf[i]; /* invert the pixels */
 +
 +  emacs_value canvas_args[2] = {args[0], env->intern (env, "nil")};
 +  env->funcall (env, env->intern (env, "canvas-refresh"), 2, canvas_args);
