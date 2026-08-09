@@ -44,6 +44,6 @@
     (cancel-timer mode-line-anim-timer)
     (setq mode-line-anim-timer nil)))
 
-(add-to-list 'mode-line-format
-             '(:eval (propertize "#" 'display mode-line-anim-canvas)))
+(setq-default mode-line-format
+              (cons '(:eval (propertize "#" 'display mode-line-anim-canvas)) mode-line-format))
 (mode-line-anim-start)
