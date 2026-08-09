@@ -3,11 +3,11 @@
 (defvar anim-vec (make-vector (* 16 16) #xFF000000))
 (defvar mode-line-anim-canvas
   `(image :type canvas
-	  :id ml-canvas
-	  :data-width 16
-	  :data-height 16
-	  :data ,anim-vec
-	  :ascent center))
+          :id ml-canvas
+          :data-width 16
+          :data-height 16
+          :data ,anim-vec
+          :ascent center))
 (defvar mode-line-anim-timer nil)
 
 (setq-default mode-line-format
@@ -38,7 +38,6 @@
                        (4 (logior #xFF000000 (ash (round (* f 255)) 16) #x0000FF))
                        (_ (logior #xFF000000 #xFF0000 (round (* (- 1 f) 255)))))))))
          (canvas-refresh mode-line-anim-canvas t)
-         (force-mode-line-update t)
          (setq tt (+ tt 0.15)))))))
 
 (defun mode-line-anim-stop ()
