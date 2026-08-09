@@ -1,4 +1,4 @@
-From 748d77b4c4136f1b4a55a0d8d0ddcd03729b30e5 Mon Sep 17 00:00:00 2001
+From ed1ea53807f143f1096f3c6644a43a0d7a1b132a Mon Sep 17 00:00:00 2001
 From: Divya Ranjan <divya@subvertising.org>
 Date: Wed, 8 Jul 2026 07:20:39 +0000
 Subject: [PATCH] New image type canvas
@@ -68,7 +68,7 @@ back to a full frame redraw if the frame is garbaged.
 ---
  doc/lispref/display.texi                   | 108 +++++
  doc/lispref/elisp.texi                     |   1 +
- doc/lispref/internals.texi                 |  47 ++
+ doc/lispref/internals.texi                 |  48 ++
  etc/NEWS                                   |  11 +
  lisp/image.el                              |   3 +
  src/dispextern.h                           |  22 +-
@@ -80,7 +80,7 @@ back to a full frame redraw if the frame is garbaged.
  src/xdisp.c                                |  76 +++
  test/src/emacs-module-resources/mod-test.c | 115 +++++
  test/src/emacs-module-tests.el             | 117 +++++
- 14 files changed, 1032 insertions(+), 20 deletions(-)
+ 14 files changed, 1033 insertions(+), 20 deletions(-)
 
 diff --git a/doc/lispref/display.texi b/doc/lispref/display.texi
 index 0d0899e418c..c916a3fc2af 100644
@@ -221,7 +221,7 @@ index 2944b598178..45c110bb5a0 100644
  
  Buttons
 diff --git a/doc/lispref/internals.texi b/doc/lispref/internals.texi
-index 0cb3e0ccb1d..8800e0b949c 100644
+index 0cb3e0ccb1d..ef98afa36df 100644
 --- a/doc/lispref/internals.texi
 +++ b/doc/lispref/internals.texi
 @@ -1117,6 +1117,7 @@ option.  @xref{Initial Options,,,emacs, The GNU Emacs Manual}.
@@ -232,7 +232,7 @@ index 0cb3e0ccb1d..8800e0b949c 100644
  * Module Nonlocal::
  @end menu
  
-@@ -2020,6 +2021,52 @@ done, close the file descriptor using @code{close}.  @ref{Low-Level
+@@ -2020,6 +2021,53 @@ done, close the file descriptor using @code{close}.  @ref{Low-Level
  I/O,,,libc}.
  @end deftypefun
  
@@ -269,7 +269,8 @@ index 0cb3e0ccb1d..8800e0b949c 100644
 +/* Write to the pixel buffer */
 +...
 +/* Redraw the canvas */
-+env->funcall(env, env->intern(env, "canvas-refresh"), 2, (emacs_value[]){canvas, Qnil});
++env->funcall(env, env->intern(env, "canvas-refresh"), 2,
++             (emacs_value[])@{canvas, Qnil@});
 +@end example
 +
 +Note that @code{canvas-refresh} has an optional boolean argument to
@@ -1086,7 +1087,7 @@ index b21dd519e4b..69f565d51f9 100644
  extern int ns_display_pixel_height (struct ns_display_info *);
  extern int ns_display_pixel_width (struct ns_display_info *);
 diff --git a/src/xdisp.c b/src/xdisp.c
-index caea8e77a9d..ce8504db4cb 100644
+index caea8e77a9d..227f3a36c7a 100644
 --- a/src/xdisp.c
 +++ b/src/xdisp.c
 @@ -32824,6 +32824,82 @@ append_stretch_glyph (struct it *it, Lisp_Object object,
@@ -1114,7 +1115,7 @@ index caea8e77a9d..ce8504db4cb 100644
 +	  struct glyph_row *row = w->current_matrix->rows + y;
 +	  if (row->enabled_p)
 +	    {
-+	      int pos_x = 0;
++	      int pos_x = area == TEXT_AREA ? row->x : 0;
 +	      for (int x = 0; x < row->used[area]; ++x)
 +		{
 +		  struct glyph *glyph = row->glyphs[area] + x;
