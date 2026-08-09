@@ -1,4 +1,4 @@
-;;; Mode Line Animation with Canvas
+;;; mode-line-anim.el --- Mode Line Animation with Canvas -*- lexical-binding: t -*-
 
 (defvar anim-vec (make-vector (* 16 16) #xFF000000))
 (defvar mode-line-anim-canvas
