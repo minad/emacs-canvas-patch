@@ -4,7 +4,10 @@
 
 * Installation
 
-1. Apply canvas-32.patch (or canvas-31.patch) to the Emacs source depending on
+The Canvas patch is part of the Emacs 32 source tree. The instructions here
+apply only to Emacs 31.
+
+1. Apply canvas-31.patch to the Emacs source depending on
    your Emacs version.
 2. Recompile Emacs.
 2. emacs -Q -l canvas-demo.el
